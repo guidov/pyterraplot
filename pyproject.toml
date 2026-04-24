@@ -44,3 +44,7 @@ Repository = "https://github.com/guidov/pyterraplot"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pyterraplot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

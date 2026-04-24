@@ -130,3 +130,127 @@ class TerraplotAccessor:
         p = Path(path)
         p.write_text(json.dumps(self.frames(dim=dim, **kwargs)))
         return p
+
+    def frames_compact(
+        self,
+        dim: str,
+        lon_dim: str | None = None,
+        lat_dim: str | None = None,
+        wrap_lon: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Compact multi-frame format: lons/lats stored once, only fields repeated.
+
+        Returns { lons, lats, frames: [{ field, frame, coord_value }, ...] }
+
+        This is what terraplot's animate() compact-format branch expects.
+        Useful for S2S lead-time animations — avoids duplicating the grid
+        per frame, cutting payload size by ~60 %.
+
+        Example
+        -------
+        payload = ds["t2m"].tp.frames_compact(dim="time")
+        json.dump(payload, open("frames_compact.json", "w"))
+        """
+        first = serialize(self._da.isel({dim: 0}), lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
+        coord_vals = self._da[dim].values
+        frame_list = []
+        for i in range(self._da.sizes[dim]):
+            s = serialize(self._da.isel({dim: i}), lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
+            frame_list.append({
+                "field":       s["field"],
+                "frame":       i,
+                "coord_value": str(coord_vals[i]),
+            })
+        return {
+            "lons":   first["lons"],
+            "lats":   first["lats"],
+            "name":   first["name"],
+            "units":  first["units"],
+            "long_name": first["long_name"],
+            "frames": frame_list,
+        }
+
+    def frames_compact_to_json(
+        self,
+        path: str | Path,
+        dim: str,
+        **kwargs,
+    ) -> Path:
+        """Write compact frames to a single JSON file."""
+        p = Path(path)
+        p.write_text(json.dumps(self.frames_compact(dim=dim, **kwargs)))
+        return p
+
+    # ── Self-contained HTML export ────────────────────────────────────────────
+
+    def to_html(
+        self,
+        path: str | Path,
+        *,
+        title: str = "terraplot",
+        cmap: str = "viridis",
+        alpha: float = 0.7,
+        lon_dim: str | None = None,
+        lat_dim: str | None = None,
+        wrap_lon: bool = True,
+        terraplot_cdn: str = "https://cdn.jsdelivr.net/npm/terraplot/dist/terraplot.js",
+    ) -> Path:
+        """
+        Export a self-contained HTML file that renders the field in a 3D globe.
+
+        The JSON payload is embedded inline — no server required.
+        Open the output file directly in a browser.
+
+        Parameters
+        ----------
+        path           : output file path (.html)
+        title          : page title
+        cmap           : colormap name (any terraplot Colormaps key)
+        alpha          : field opacity (0-1)
+        terraplot_cdn  : CDN URL for the terraplot ES module bundle
+        """
+        payload = self.to_dict(lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
+        payload_json = json.dumps(payload)
+        long_name = payload.get("long_name") or payload.get("name") or title
+        units = payload.get("units", "")
+        label = f"{long_name} [{units}]" if units else long_name
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{title}</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ background: #090912; color: #e0e0e0; font-family: system-ui, sans-serif; }}
+  #globe {{ width: 100vw; height: 100vh; }}
+  #label {{
+    position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.55); padding: .35rem .8rem; border-radius: 6px;
+    font-size: .85rem; pointer-events: none;
+  }}
+</style>
+</head>
+<body>
+<div id="globe"></div>
+<div id="label">{label}</div>
+<script type="module">
+import {{ GeoSphere, Features }} from '{terraplot_cdn}';
+
+const payload = {payload_json};
+
+const globe = new GeoSphere('#globe');
+globe.addFeature(Features.COASTLINES, {{ color: '#aaaaaa', opacity: 0.6 }});
+globe.pcolormesh(payload.lons, payload.lats, payload.field, {{
+  cmap:  '{cmap}',
+  alpha: {alpha},
+}});
+</script>
+</body>
+</html>"""
+
+        p = Path(path)
+        p.write_text(html)
+        return p
