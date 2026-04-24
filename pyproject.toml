@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyterraplot"
+version = "0.1.0"
+description = "xarray accessor + server bridge for the terraplot JS globe visualization library"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Guido Vettoretti" }]
+keywords = ["xarray", "climate", "weather", "s2s", "visualization", "globe", "cartopy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "xarray>=2023.1",
+]
+
+[project.optional-dependencies]
+serve = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "websockets>=12.0",
+]
+cf = [
+    "cf_xarray>=0.9",   # CF-convention coordinate name resolution
+]
+all = ["pyterraplot[serve,cf]"]
+
+[project.urls]
+Homepage   = "https://github.com/guidov/pyterraplot"
+Repository = "https://github.com/guidov/pyterraplot"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pyterraplot"]
