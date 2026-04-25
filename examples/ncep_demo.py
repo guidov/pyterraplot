@@ -87,14 +87,18 @@ print(f"  P anomaly color range (p98 sym): {p_vlim[0]:.1f} … {p_vlim[1]:.1f} m
 print()
 
 exports = [
-    (t_latest, "/tmp/t2m_latest.html",    "viridis",  "2m Temperature",   None,         None),
-    (t_anom,   "/tmp/t2m_anomaly.html",   "RdYlBu_r", "2m Temp Anomaly",  *t_vlim),
-    (p_latest, "/tmp/precip_latest.html", "YlGnBu",   "Precipitation",    0,            None),
-    (p_anom,   "/tmp/precip_anomaly.html","RdBu",      "Precip Anomaly",   *p_vlim),
+    # (da, path, kind, cmap, title, vmin, vmax, levels)
+    (t_latest, "/tmp/t2m_latest.html",         "pcolormesh", "viridis",  "2m Temperature",        None,       None,       12),
+    (t_anom,   "/tmp/t2m_anomaly.html",         "pcolormesh", "RdYlBu_r","2m Temp Anomaly",        *t_vlim,    12),
+    (t_anom,   "/tmp/t2m_anomaly_contourf.html","contourf",   "RdYlBu_r","2m Temp Anomaly contourf",*t_vlim,   14),
+    (p_latest, "/tmp/precip_latest.html",       "pcolormesh", "YlGnBu",  "Precipitation",          0,          None,       12),
+    (p_latest, "/tmp/precip_contourf.html",     "contourf",   "YlGnBu",  "Precipitation contourf", 0,          None,       12),
+    (p_anom,   "/tmp/precip_anomaly.html",      "pcolormesh", "RdBu",    "Precip Anomaly",          *p_vlim,    12),
+    (p_anom,   "/tmp/precip_anomaly_contourf.html","contourf","RdBu",    "Precip Anomaly contourf", *p_vlim,    14),
 ]
 
-for da, path, cmap, title, vmin, vmax in exports:
-    da.tp.to_html(path, title=title, cmap=cmap, alpha=0.78, vmin=vmin, vmax=vmax)
+for da, path, kind, cmap, title, vmin, vmax, levels in exports:
+    da.tp.to_html(path, kind=kind, title=title, cmap=cmap, alpha=0.82, vmin=vmin, vmax=vmax, levels=levels)
     kb = len(open(path).read()) / 1024
     print(f"  {path}  ({kb:.0f} kB)")
 
@@ -123,5 +127,5 @@ print()
 print("Done.")
 print()
 print("Open in browser:")
-for _, path, _, _ in exports:
+for _, path, *_ in exports:
     print(f"  xdg-open {path}")

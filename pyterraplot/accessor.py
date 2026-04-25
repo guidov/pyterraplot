@@ -190,11 +190,13 @@ class TerraplotAccessor:
         self,
         path: str | Path,
         *,
+        kind: str = "pcolormesh",
         title: str = "terraplot",
         cmap: str = "viridis",
         alpha: float = 0.7,
         vmin: float | None = None,
         vmax: float | None = None,
+        levels: int = 12,
         lon_dim: str | None = None,
         lat_dim: str | None = None,
         wrap_lon: bool = True,
@@ -209,15 +211,19 @@ class TerraplotAccessor:
         Parameters
         ----------
         path               : output file path (.html)
+        kind               : 'pcolormesh' (smooth) or 'contourf' (banded)
         title              : page title
         cmap               : colormap name (any terraplot Colormaps key)
         alpha              : field opacity (0-1)
         vmin, vmax         : colormap range; auto-detected from data if None.
                              For anomaly fields, pass symmetric values to keep
                              zero at the colormap midpoint.
+        levels             : number of discrete bands for contourf (default 12)
         terraplot_bundle   : path to terraplot dist/terraplot.js; auto-detected
                              if None (looks for sibling repo ../terraplot)
         """
+        if kind not in ("pcolormesh", "contourf"):
+            raise ValueError(f"kind must be 'pcolormesh' or 'contourf', got {kind!r}")
         payload = self.to_dict(lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
         payload_json = json.dumps(payload)
         long_name = payload.get("long_name") or payload.get("name") or title
@@ -282,12 +288,13 @@ const payload = {payload_json};
 
 const globe = new GeoSphere('#globe');
 const opts = {{
-  cmap:  '{cmap}',
-  alpha: {alpha},
-  vmin:  {_js(vmin)},
-  vmax:  {_js(vmax)},
+  cmap:   '{cmap}',
+  alpha:  {alpha},
+  vmin:   {_js(vmin)},
+  vmax:   {_js(vmax)},
+  levels: {levels if kind == 'contourf' else 'null'},
 }};
-globe.pcolormesh(payload.lons, payload.lats, payload.field, opts);
+globe.{kind}(payload.lons, payload.lats, payload.field, opts);
 
 // ── Colorbar ──────────────────────────────────────────────────────────────
 (function drawColorbar() {{
