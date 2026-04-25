@@ -193,6 +193,8 @@ class TerraplotAccessor:
         title: str = "terraplot",
         cmap: str = "viridis",
         alpha: float = 0.7,
+        vmin: float | None = None,
+        vmax: float | None = None,
         lon_dim: str | None = None,
         lat_dim: str | None = None,
         wrap_lon: bool = True,
@@ -210,6 +212,9 @@ class TerraplotAccessor:
         title              : page title
         cmap               : colormap name (any terraplot Colormaps key)
         alpha              : field opacity (0-1)
+        vmin, vmax         : colormap range; auto-detected from data if None.
+                             For anomaly fields, pass symmetric values to keep
+                             zero at the colormap midpoint.
         terraplot_bundle   : path to terraplot dist/terraplot.js; auto-detected
                              if None (looks for sibling repo ../terraplot)
         """
@@ -221,6 +226,7 @@ class TerraplotAccessor:
 
         bundle_js = _load_terraplot_bundle(terraplot_bundle)
 
+        cbar_id = "cbar"
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -232,15 +238,37 @@ class TerraplotAccessor:
   body {{ background: #090912; color: #e0e0e0; font-family: system-ui, sans-serif; }}
   #globe {{ width: 100vw; height: 100vh; }}
   #label {{
-    position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,.55); padding: .35rem .8rem; border-radius: 6px;
-    font-size: .85rem; pointer-events: none;
+    position: fixed; top: .8rem; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.6); padding: .35rem .9rem; border-radius: 6px;
+    font-size: .82rem; white-space: nowrap; pointer-events: none;
+    border: 1px solid rgba(255,255,255,.12);
+  }}
+  #colorbar {{
+    position: fixed; bottom: 1.4rem; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    pointer-events: none; min-width: 220px;
+  }}
+  #cbar-bar {{
+    width: 220px; height: 12px; border-radius: 3px;
+    border: 1px solid rgba(255,255,255,.18);
+  }}
+  #cbar-ticks {{
+    width: 220px; display: flex; justify-content: space-between;
+    font-size: .7rem; color: #cbd5e1;
+  }}
+  #cbar-units {{
+    font-size: .68rem; color: #94a3b8; letter-spacing: .03em;
   }}
 </style>
 </head>
 <body>
 <div id="globe"></div>
 <div id="label">{label}</div>
+<div id="colorbar">
+  <canvas id="{cbar_id}" width="220" height="12"></canvas>
+  <div id="cbar-ticks"></div>
+  <div id="cbar-units">{units}</div>
+</div>
 <script type="importmap">
 {{"imports": {{
   "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
@@ -253,10 +281,47 @@ class TerraplotAccessor:
 const payload = {payload_json};
 
 const globe = new GeoSphere('#globe');
-globe.pcolormesh(payload.lons, payload.lats, payload.field, {{
+const opts = {{
   cmap:  '{cmap}',
   alpha: {alpha},
-}});
+  vmin:  {_js(vmin)},
+  vmax:  {_js(vmax)},
+}};
+globe.pcolormesh(payload.lons, payload.lats, payload.field, opts);
+
+// ── Colorbar ──────────────────────────────────────────────────────────────
+(function drawColorbar() {{
+  // Resolve the actual vmin/vmax used by FieldLayer (may be auto-detected)
+  const field = payload.field;
+  let lo = opts.vmin, hi = opts.vmax;
+  if (lo == null || hi == null) {{
+    lo = Infinity; hi = -Infinity;
+    for (const row of field) for (const v of row) {{
+      if (v != null && !isNaN(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
+    }}
+  }}
+
+  const colorFn = resolveColormap('{cmap}');
+  const canvas  = document.getElementById('{cbar_id}');
+  const ctx     = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  for (let x = 0; x < W; x++) {{
+    const t = x / (W - 1);
+    const [r, g, b] = colorFn(t);
+    ctx.fillStyle = `rgb(${{r}},${{g}},${{b}})`;
+    ctx.fillRect(x, 0, 1, H);
+  }}
+
+  // Tick labels: 5 evenly spaced values
+  const ticks = document.getElementById('cbar-ticks');
+  const n = 5;
+  for (let i = 0; i < n; i++) {{
+    const v = lo + (i / (n - 1)) * (hi - lo);
+    const span = document.createElement('span');
+    span.textContent = v.toFixed(Math.abs(hi - lo) < 2 ? 2 : 1);
+    ticks.appendChild(span);
+  }}
+}})();
 </script>
 </body>
 </html>"""
@@ -267,6 +332,11 @@ globe.pcolormesh(payload.lons, payload.lats, payload.field, {{
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _js(v: float | None) -> str:
+    """Format a Python float/None as a JS literal (null or number)."""
+    return "null" if v is None else repr(float(v))
+
 
 def _load_terraplot_bundle(bundle_path: str | Path | None) -> str:
     """

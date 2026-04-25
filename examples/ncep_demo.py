@@ -73,15 +73,28 @@ print()
 
 # ── Export HTML globes ────────────────────────────────────────────────────────
 
+def sym_vlim(da, pct=98):
+    """Symmetric colormap limit at the given percentile — keeps zero centred."""
+    vals = da.values.ravel()
+    vals = vals[~np.isnan(vals)]
+    bound = float(np.percentile(np.abs(vals), pct))
+    return -bound, bound
+
+t_vlim  = sym_vlim(t_anom)
+p_vlim  = sym_vlim(p_anom)
+print(f"  T anomaly color range (p98 sym): {t_vlim[0]:.1f} … {t_vlim[1]:.1f} K")
+print(f"  P anomaly color range (p98 sym): {p_vlim[0]:.1f} … {p_vlim[1]:.1f} mm/day")
+print()
+
 exports = [
-    (t_latest, "/tmp/t2m_latest.html",   "viridis",   "2m Temperature"),
-    (t_anom,   "/tmp/t2m_anomaly.html",  "RdYlBu_r",  "2m Temp Anomaly"),
-    (p_latest, "/tmp/precip_latest.html","YlGnBu",    "Precipitation"),
-    (p_anom,   "/tmp/precip_anomaly.html","RdBu",     "Precip Anomaly"),
+    (t_latest, "/tmp/t2m_latest.html",    "viridis",  "2m Temperature",   None,         None),
+    (t_anom,   "/tmp/t2m_anomaly.html",   "RdYlBu_r", "2m Temp Anomaly",  *t_vlim),
+    (p_latest, "/tmp/precip_latest.html", "YlGnBu",   "Precipitation",    0,            None),
+    (p_anom,   "/tmp/precip_anomaly.html","RdBu",      "Precip Anomaly",   *p_vlim),
 ]
 
-for da, path, cmap, title in exports:
-    da.tp.to_html(path, title=title, cmap=cmap, alpha=0.78)
+for da, path, cmap, title, vmin, vmax in exports:
+    da.tp.to_html(path, title=title, cmap=cmap, alpha=0.78, vmin=vmin, vmax=vmax)
     kb = len(open(path).read()) / 1024
     print(f"  {path}  ({kb:.0f} kB)")
 
