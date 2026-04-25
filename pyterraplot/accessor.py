@@ -6,6 +6,8 @@ Registered automatically when pyterraplot is imported.
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -194,27 +196,30 @@ class TerraplotAccessor:
         lon_dim: str | None = None,
         lat_dim: str | None = None,
         wrap_lon: bool = True,
-        terraplot_cdn: str = "https://cdn.jsdelivr.net/npm/terraplot/dist/terraplot.js",
+        terraplot_bundle: str | Path | None = None,
     ) -> Path:
         """
         Export a self-contained HTML file that renders the field in a 3D globe.
 
-        The JSON payload is embedded inline — no server required.
-        Open the output file directly in a browser.
+        The JSON payload and the terraplot bundle are both embedded inline —
+        no server required. Open the output file directly in a browser.
 
         Parameters
         ----------
-        path           : output file path (.html)
-        title          : page title
-        cmap           : colormap name (any terraplot Colormaps key)
-        alpha          : field opacity (0-1)
-        terraplot_cdn  : CDN URL for the terraplot ES module bundle
+        path               : output file path (.html)
+        title              : page title
+        cmap               : colormap name (any terraplot Colormaps key)
+        alpha              : field opacity (0-1)
+        terraplot_bundle   : path to terraplot dist/terraplot.js; auto-detected
+                             if None (looks for sibling repo ../terraplot)
         """
         payload = self.to_dict(lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
         payload_json = json.dumps(payload)
         long_name = payload.get("long_name") or payload.get("name") or title
         units = payload.get("units", "")
         label = f"{long_name} [{units}]" if units else long_name
+
+        bundle_js = _load_terraplot_bundle(terraplot_bundle)
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -236,13 +241,18 @@ class TerraplotAccessor:
 <body>
 <div id="globe"></div>
 <div id="label">{label}</div>
+<script type="importmap">
+{{"imports": {{
+  "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+}}}}
+</script>
 <script type="module">
-import {{ GeoSphere, Features }} from '{terraplot_cdn}';
+{bundle_js}
 
 const payload = {payload_json};
 
 const globe = new GeoSphere('#globe');
-globe.addFeature(Features.COASTLINES, {{ color: '#aaaaaa', opacity: 0.6 }});
 globe.pcolormesh(payload.lons, payload.lats, payload.field, {{
   cmap:  '{cmap}',
   alpha: {alpha},
@@ -254,3 +264,53 @@ globe.pcolormesh(payload.lons, payload.lats, payload.field, {{
         p = Path(path)
         p.write_text(html)
         return p
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _load_terraplot_bundle(bundle_path: str | Path | None) -> str:
+    """
+    Read the terraplot ESM bundle and transform it for inline use:
+      - strip the `export { ... }` block
+      - re-expose all public names as plain `const` declarations
+
+    Search order for bundle_path=None:
+      1. TERRAPLOT_BUNDLE env var
+      2. sibling repo:  <this_file>/../../.. / terraplot/dist/terraplot.js
+    """
+    if bundle_path is None:
+        bundle_path = os.environ.get("TERRAPLOT_BUNDLE")
+
+    if bundle_path is None:
+        # Sibling repo layout: /home/user/pyterraplot  &  /home/user/terraplot
+        candidate = Path(__file__).resolve().parent.parent.parent / "terraplot" / "dist" / "terraplot.js"
+        if candidate.exists():
+            bundle_path = candidate
+
+    if bundle_path is None:
+        raise FileNotFoundError(
+            "Cannot find terraplot bundle. Pass terraplot_bundle='/path/to/terraplot/dist/terraplot.js' "
+            "or set the TERRAPLOT_BUNDLE environment variable."
+        )
+
+    js = Path(bundle_path).read_text()
+
+    # Find the export block at the end: export { a as B, c as D, ... };
+    m = re.search(r'export\s*\{([^}]+)\}\s*;?\s*$', js, re.DOTALL)
+    if not m:
+        return js  # no export block — return as-is
+
+    export_block = m.group(1)
+    aliases: list[str] = []
+    for entry in export_block.split(','):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ' as ' in entry:
+            min_name, pub_name = entry.split(' as ', 1)
+            aliases.append(f"const {pub_name.strip()} = {min_name.strip()};")
+        else:
+            aliases.append(f"const {entry} = {entry};")
+
+    # Strip the export block and append const aliases
+    return js[:m.start()].rstrip() + '\n' + '\n'.join(aliases)
