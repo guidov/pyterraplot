@@ -214,7 +214,8 @@ class TestToHtml:
 
     def test_json_payload_embedded(self, tmp_path):
         da = make_da(nlat=4, nlon=8)
-        out = da.tp.to_html(tmp_path / "globe.html")
+        # binary=False forces JSON payload to be embedded as plain text
+        out = da.tp.to_html(tmp_path / "globe.html", binary=False)
         content = out.read_text()
         assert '"lons"' in content
         assert '"lats"' in content

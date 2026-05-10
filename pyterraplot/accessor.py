@@ -14,6 +14,7 @@ from typing import Any
 import xarray as xr
 
 from .serialize import serialize
+from .binary import pack_field, pack_frames
 
 
 @xr.register_dataarray_accessor("tp")
@@ -184,6 +185,36 @@ class TerraplotAccessor:
         p.write_text(json.dumps(self.frames_compact(dim=dim, **kwargs)))
         return p
 
+    # ── Jupyter inline rendering ──────────────────────────────────────────────
+
+    def _repr_html_(self) -> str:
+        """
+        Inline rendering inside Jupyter notebooks.
+        Only triggers for 2-D arrays; otherwise falls back to xarray's repr.
+
+        The rendered HTML is a self-contained iframe-friendly globe + colorbar.
+        """
+        if self._da.ndim != 2:
+            return None  # let xarray show its default repr
+
+        try:
+            import tempfile, base64
+            html = self._build_html(
+                kind="pcolormesh", title=str(self._da.name or "field"),
+                cmap="viridis", alpha=0.85, vmin=None, vmax=None, levels=12,
+                projection=None, coastlines=False, center=(0, 0), extent=None,
+                binary=True, lon_dim=None, lat_dim=None, wrap_lon=True,
+                terraplot_bundle=None, height_px=420,
+            )
+            # Use srcdoc-encoded iframe so the script runs in a sandboxed context
+            srcdoc = html.replace("&", "&amp;").replace('"', "&quot;")
+            return (
+                f'<iframe srcdoc="{srcdoc}" width="100%" height="440" '
+                f'style="border:1px solid rgba(255,255,255,.1); border-radius:6px;"></iframe>'
+            )
+        except Exception as e:
+            return f"<pre>pyterraplot _repr_html_ failed: {e}</pre>"
+
     # ── Self-contained HTML export ────────────────────────────────────────────
 
     def to_html(
@@ -197,142 +228,170 @@ class TerraplotAccessor:
         vmin: float | None = None,
         vmax: float | None = None,
         levels: int = 12,
+        projection: str | None = None,
+        coastlines: bool = True,
+        center: tuple[float, float] = (0, 0),
+        extent: tuple[float, float, float, float] | None = None,
+        binary: bool = True,
         lon_dim: str | None = None,
         lat_dim: str | None = None,
         wrap_lon: bool = True,
         terraplot_bundle: str | Path | None = None,
     ) -> Path:
         """
-        Export a self-contained HTML file that renders the field in a 3D globe.
+        Export a self-contained HTML file that renders the field.
 
-        The JSON payload and the terraplot bundle are both embedded inline —
-        no server required. Open the output file directly in a browser.
+        With ``projection=None`` (default) renders a 3D globe (GeoSphere).
+        With a projection name renders a 2D flat map (GeoMap) with interactive
+        hover tooltips showing lat, lon, and field value.
 
         Parameters
         ----------
-        path               : output file path (.html)
-        kind               : 'pcolormesh' (smooth) or 'contourf' (banded)
-        title              : page title
-        cmap               : colormap name (any terraplot Colormaps key)
-        alpha              : field opacity (0-1)
-        vmin, vmax         : colormap range; auto-detected from data if None.
-                             For anomaly fields, pass symmetric values to keep
-                             zero at the colormap midpoint.
-        levels             : number of discrete bands for contourf (default 12)
-        terraplot_bundle   : path to terraplot dist/terraplot.js; auto-detected
-                             if None (looks for sibling repo ../terraplot)
+        path        : output file path (.html)
+        kind        : 'pcolormesh' (smooth) or 'contourf' (banded)
+        title       : page title
+        cmap        : colormap name (any terraplot Colormaps key)
+        alpha       : field opacity (0-1)
+        vmin, vmax  : colormap range; auto-detected from data if None
+        levels      : number of discrete bands for contourf (default 12)
+        projection  : 2D map projection name, or None for 3D globe.
+                      Supported: 'equirectangular' (= 'PlateCarree'), 'mercator',
+                      'orthographic', 'naturalEarth', 'stereographic',
+                      'azimuthalEqualArea', 'albers', 'lambertConformal',
+                      'gnomonic'.
+        coastlines  : add coastlines overlay when using 2D projection (default True)
+        center      : (lon, lat) map centre for 2D projection (default (0, 0))
+        extent      : (lon0, lon1, lat0, lat1) regional zoom, like cartopy set_extent.
+                      Only used with 2D projection.
+        binary      : use gzip-compressed float32 binary instead of JSON (default True).
+                      Reduces HTML size 3-6× for typical climate grids.
+                      Requires DecompressionStream (Chrome 80+, Firefox 113+, Safari 16.4+).
+        terraplot_bundle : path to terraplot dist/terraplot.js; auto-detected
+                           if None (looks for sibling repo ../terraplot)
         """
+        html = self._build_html(
+            kind=kind, title=title, cmap=cmap, alpha=alpha,
+            vmin=vmin, vmax=vmax, levels=levels,
+            projection=projection, coastlines=coastlines,
+            center=center, extent=extent, binary=binary,
+            lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon,
+            terraplot_bundle=terraplot_bundle,
+        )
+        p = Path(path)
+        p.write_text(html)
+        return p
+
+    def _build_html(
+        self, *, kind, title, cmap, alpha, vmin, vmax, levels,
+        projection, coastlines, center, extent, binary,
+        lon_dim, lat_dim, wrap_lon, terraplot_bundle, height_px=None,
+    ) -> str:
+        """Shared HTML builder used by to_html() and _repr_html_()."""
         if kind not in ("pcolormesh", "contourf"):
             raise ValueError(f"kind must be 'pcolormesh' or 'contourf', got {kind!r}")
         payload = self.to_dict(lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
-        payload_json = json.dumps(payload)
         long_name = payload.get("long_name") or payload.get("name") or title
         units = payload.get("units", "")
         label = f"{long_name} [{units}]" if units else long_name
 
         bundle_js = _load_terraplot_bundle(terraplot_bundle)
 
+        use_2d = projection is not None
         cbar_id = "cbar"
-        html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>{title}</title>
-<style>
-  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-  body {{ background: #090912; color: #e0e0e0; font-family: system-ui, sans-serif; }}
-  #globe {{ width: 100vw; height: 100vh; }}
-  #label {{
-    position: fixed; top: .8rem; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,.6); padding: .35rem .9rem; border-radius: 6px;
-    font-size: .82rem; white-space: nowrap; pointer-events: none;
-    border: 1px solid rgba(255,255,255,.12);
-  }}
-  #colorbar {{
-    position: fixed; bottom: 1.4rem; left: 50%; transform: translateX(-50%);
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    pointer-events: none; min-width: 220px;
-  }}
-  #cbar-bar {{
-    width: 220px; height: 12px; border-radius: 3px;
-    border: 1px solid rgba(255,255,255,.18);
-  }}
-  #cbar-ticks {{
-    width: 220px; display: flex; justify-content: space-between;
-    font-size: .7rem; color: #cbd5e1;
-  }}
-  #cbar-units {{
-    font-size: .68rem; color: #94a3b8; letter-spacing: .03em;
-  }}
-</style>
-</head>
-<body>
-<div id="globe"></div>
-<div id="label">{label}</div>
-<div id="colorbar">
-  <canvas id="{cbar_id}" width="220" height="12"></canvas>
-  <div id="cbar-ticks"></div>
-  <div id="cbar-units">{units}</div>
-</div>
-<script type="importmap">
-{{"imports": {{
-  "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
-}}}}
-</script>
-<script type="module">
-{bundle_js}
 
-const payload = {payload_json};
+        if binary:
+            b64 = pack_field(payload)
+            payload_js = f'await unpackField("{b64}")'
+        else:
+            payload_js = json.dumps(payload)
 
-const globe = new GeoSphere('#globe');
-const opts = {{
-  cmap:   '{cmap}',
-  alpha:  {alpha},
-  vmin:   {_js(vmin)},
-  vmax:   {_js(vmax)},
-  levels: {levels if kind == 'contourf' else 'null'},
-}};
-globe.{kind}(payload.lons, payload.lats, payload.field, opts);
+        if use_2d:
+            map_init = _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
+                                         projection, coastlines, center, units, extent)
+        else:
+            map_init = _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels)
 
-// ── Colorbar ──────────────────────────────────────────────────────────────
-(function drawColorbar() {{
-  // Resolve the actual vmin/vmax used by FieldLayer (may be auto-detected)
-  const field = payload.field;
-  let lo = opts.vmin, hi = opts.vmax;
-  if (lo == null || hi == null) {{
-    lo = Infinity; hi = -Infinity;
-    for (const row of field) for (const v of row) {{
-      if (v != null && !isNaN(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
-    }}
-  }}
+        return _html_single(
+            title=title, label=label, units=units,
+            cbar_id=cbar_id, bundle_js=bundle_js,
+            payload_js=payload_js, map_init=map_init,
+            cmap=cmap, vmin=vmin, vmax=vmax,
+            height_px=height_px,
+        )
 
-  const colorFn = resolveColormap('{cmap}');
-  const canvas  = document.getElementById('{cbar_id}');
-  const ctx     = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  for (let x = 0; x < W; x++) {{
-    const t = x / (W - 1);
-    const [r, g, b] = colorFn(t);
-    ctx.fillStyle = `rgb(${{r}},${{g}},${{b}})`;
-    ctx.fillRect(x, 0, 1, H);
-  }}
+    # ── Animation HTML export ─────────────────────────────────────────────────
 
-  // Tick labels: 5 evenly spaced values
-  const ticks = document.getElementById('cbar-ticks');
-  const n = 5;
-  for (let i = 0; i < n; i++) {{
-    const v = lo + (i / (n - 1)) * (hi - lo);
-    const span = document.createElement('span');
-    span.textContent = v.toFixed(Math.abs(hi - lo) < 2 ? 2 : 1);
-    ticks.appendChild(span);
-  }}
-}})();
-</script>
-</body>
-</html>"""
+    def frames_to_html(
+        self,
+        path: str | Path,
+        dim: str,
+        *,
+        kind: str = "pcolormesh",
+        title: str = "terraplot",
+        cmap: str = "viridis",
+        alpha: float = 0.7,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        levels: int = 12,
+        projection: str | None = None,
+        coastlines: bool = True,
+        center: tuple[float, float] = (0, 0),
+        extent: tuple[float, float, float, float] | None = None,
+        interval: int = 700,
+        lon_dim: str | None = None,
+        lat_dim: str | None = None,
+        wrap_lon: bool = True,
+        terraplot_bundle: str | Path | None = None,
+    ) -> Path:
+        """
+        Export a self-contained animated HTML file.
 
+        Uses gzip-compressed float32 binary (DecompressionStream) so even
+        12-month global animations stay under ~3 MB.
+
+        Includes play/pause, frame scrubber, and frame label overlay.
+
+        Parameters
+        ----------
+        path       : output .html path
+        dim        : dimension to animate over (e.g. 'time', 'lead_time')
+        kind       : 'pcolormesh' | 'contourf'
+        projection : 2D map projection name, or None for 3D globe
+        coastlines : add coastlines in 2D mode (default True)
+        interval   : ms between frames (default 700)
+        """
+        if kind not in ("pcolormesh", "contourf"):
+            raise ValueError(f"kind must be 'pcolormesh' or 'contourf', got {kind!r}")
+
+        compact   = self.frames_compact(dim=dim, lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
+        b64       = pack_frames(compact)
+        n_frames  = len(compact["frames"])
+        long_name = compact.get("long_name") or compact.get("name") or title
+        units     = compact.get("units", "")
+        label     = f"{long_name} [{units}]" if units else long_name
+
+        bundle_js = _load_terraplot_bundle(terraplot_bundle)
+        use_2d    = projection is not None
+        levels_js = levels if kind == "contourf" else "null"
+        center_js = f"[{center[0]}, {center[1]}]"
+        extent_js = (f", extent: [{extent[0]}, {extent[1]}, {extent[2]}, {extent[3]}]"
+                     if extent else "")
+
+        map_ctor = (
+            f"new GeoMap('#map', {{ projection: '{projection}', center: {center_js}{extent_js}, tooltip: true }})"
+            if use_2d else
+            "new GeoSphere('#map')"
+        )
+        coastlines_line = "map.addFeature('coastlines');" if (use_2d and coastlines) else ""
+
+        html = _html_animation(
+            title=title, label=label, units=units, n_frames=n_frames,
+            bundle_js=bundle_js, b64=b64,
+            kind=kind, cmap=cmap, alpha=alpha,
+            vmin=vmin, vmax=vmax, levels_js=levels_js,
+            interval=interval, map_ctor=map_ctor,
+            coastlines_line=coastlines_line,
+        )
         p = Path(path)
         p.write_text(html)
         return p
@@ -343,6 +402,51 @@ globe.{kind}(payload.lons, payload.lats, payload.field, opts);
 def _js(v: float | None) -> str:
     """Format a Python float/None as a JS literal (null or number)."""
     return "null" if v is None else repr(float(v))
+
+
+def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels) -> str:
+    """JS snippet that creates a GeoSphere and plots a field."""
+    levels_js = levels if kind == "contourf" else "null"
+    return f"""
+const map = new GeoSphere('#map');
+const opts = {{
+  cmap:   '{cmap}',
+  alpha:  {alpha},
+  vmin:   {_js(vmin)},
+  vmax:   {_js(vmax)},
+  levels: {levels_js},
+}};
+map.{kind}(payload.lons, payload.lats, payload.field, opts);
+"""
+
+
+def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
+                      projection, coastlines, center, units,
+                      extent=None) -> str:
+    """JS snippet that creates a GeoMap (2D projection) and plots a field."""
+    levels_js = levels if kind == "contourf" else "null"
+    center_js = f"[{center[0]}, {center[1]}]"
+    extent_js = (f", extent: [{extent[0]}, {extent[1]}, {extent[2]}, {extent[3]}]"
+                 if extent else "")
+    coastlines_js = "map.addFeature('coastlines');" if coastlines else ""
+    return f"""
+const map = new GeoMap('#map', {{
+  projection: '{projection}',
+  center:     {center_js}{extent_js},
+  tooltip:    true,
+}});
+const opts = {{
+  cmap:   '{cmap}',
+  alpha:  {alpha},
+  vmin:   {_js(vmin)},
+  vmax:   {_js(vmax)},
+  levels: {levels_js},
+  name:   payload.name,
+  units:  payload.units,
+}};
+map.{kind}(payload.lons, payload.lats, payload.field, opts);
+{coastlines_js}
+"""
 
 
 def _load_terraplot_bundle(bundle_path: str | Path | None) -> str:
@@ -391,3 +495,242 @@ def _load_terraplot_bundle(bundle_path: str | Path | None) -> str:
 
     # Strip the export block and append const aliases
     return js[:m.start()].rstrip() + '\n' + '\n'.join(aliases)
+
+
+# ── HTML builders ─────────────────────────────────────────────────────────────
+
+_SHARED_CSS = """
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #090912; color: #e0e0e0; font-family: system-ui, sans-serif; }
+  #map { width: 100vw; height: 100vh; }
+  #label {
+    position: fixed; top: .8rem; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.6); padding: .35rem .9rem; border-radius: 6px;
+    font-size: .82rem; white-space: nowrap; pointer-events: none;
+    border: 1px solid rgba(255,255,255,.12);
+  }
+  #colorbar {
+    position: fixed; bottom: 1.4rem; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    pointer-events: none; min-width: 220px;
+  }
+  #cbar-ticks {
+    width: 220px; display: flex; justify-content: space-between;
+    font-size: .7rem; color: #cbd5e1;
+  }
+  #cbar-units { font-size: .68rem; color: #94a3b8; letter-spacing: .03em; }
+"""
+
+_IMPORTMAP = """\
+<script type="importmap">
+{"imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+}}
+</script>"""
+
+_COLORBAR_JS = """\
+// ── Colorbar ──────────────────────────────────────────────────────────────
+(function drawColorbar(field, cmap, vmin, vmax) {
+  let lo = vmin, hi = vmax;
+  if (lo == null || hi == null) {
+    lo = Infinity; hi = -Infinity;
+    // Handle both flat TypedArray (binary mode) and nested 2D array (JSON mode)
+    const iterable = ArrayBuffer.isView(field) ? field : field.flat(Infinity);
+    for (const v of iterable) {
+      if (v != null && isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    }
+  }
+  const colorFn = resolveColormap(cmap);
+  const canvas  = document.getElementById('cbar');
+  const ctx     = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  for (let x = 0; x < W; x++) {
+    const [r, g, b] = colorFn(x / (W - 1));
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(x, 0, 1, H);
+  }
+  const ticks = document.getElementById('cbar-ticks');
+  for (let i = 0; i < 5; i++) {
+    const v = lo + (i / 4) * (hi - lo);
+    const span = document.createElement('span');
+    span.textContent = v.toFixed(Math.abs(hi - lo) < 2 ? 2 : 1);
+    ticks.appendChild(span);
+  }
+})(payload.field, CMAP, VMIN, VMAX);"""
+
+
+def _html_single(*, title, label, units, cbar_id, bundle_js, payload_js,
+                 map_init, cmap, vmin, vmax, height_px=None) -> str:
+    colorbar_js = (
+        _COLORBAR_JS
+        .replace("'cbar'", f"'{cbar_id}'")
+        .replace("CMAP", f"'{cmap}'")
+        .replace("VMIN", _js(vmin))
+        .replace("VMAX", _js(vmax))
+    )
+    map_height = f"{height_px}px" if height_px else "100vh"
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{title}</title>
+<style>
+{_SHARED_CSS}
+  #map {{ width: 100vw; height: {map_height}; }}
+  #cbar {{ width: 220px; height: 12px; border-radius: 3px;
+           border: 1px solid rgba(255,255,255,.18); }}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="label">{label}</div>
+<div id="colorbar">
+  <canvas id="{cbar_id}" width="220" height="12"></canvas>
+  <div id="cbar-ticks"></div>
+  <div id="cbar-units">{units}</div>
+</div>
+{_IMPORTMAP}
+<script type="module">
+{bundle_js}
+
+const payload = {payload_js};
+{map_init}
+{colorbar_js}
+</script>
+</body>
+</html>"""
+
+
+def _html_animation(*, title, label, units, n_frames, bundle_js, b64,
+                    kind, cmap, alpha, vmin, vmax, levels_js, interval,
+                    map_ctor, coastlines_line) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{title}</title>
+<style>
+{_SHARED_CSS}
+  #cbar {{ width: 220px; height: 12px; border-radius: 3px;
+           border: 1px solid rgba(255,255,255,.18); }}
+  #controls {{
+    position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: .6rem;
+    background: rgba(0,0,0,.65); padding: .4rem .8rem; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.12); user-select: none;
+  }}
+  #play-btn {{
+    background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+    color: #e2e8f0; border-radius: 4px; padding: 2px 10px; cursor: pointer;
+    font-size: .78rem; transition: background .15s;
+  }}
+  #play-btn:hover {{ background: rgba(255,255,255,.22); }}
+  #scrubber {{
+    width: 180px; accent-color: #60a5fa; cursor: pointer;
+  }}
+  #frame-label {{
+    font-size: .72rem; color: #94a3b8; min-width: 80px; text-align: center;
+  }}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="label">{label}</div>
+<div id="colorbar">
+  <canvas id="cbar" width="220" height="12"></canvas>
+  <div id="cbar-ticks"></div>
+  <div id="cbar-units">{units}</div>
+</div>
+<div id="controls">
+  <button id="play-btn">⏸ Pause</button>
+  <input id="scrubber" type="range" min="0" max="{n_frames - 1}" value="0" step="1"/>
+  <span id="frame-label">Frame 0</span>
+</div>
+{_IMPORTMAP}
+<script type="module">
+{bundle_js}
+
+const data = await unpackFrames("{b64}");
+
+const map = {map_ctor};
+{coastlines_line}
+const opts = {{
+  cmap:   '{cmap}',
+  alpha:  {alpha},
+  vmin:   {_js(vmin)},
+  vmax:   {_js(vmax)},
+  levels: {levels_js},
+}};
+
+const scrubber   = document.getElementById('scrubber');
+const playBtn    = document.getElementById('play-btn');
+const frameLabel = document.getElementById('frame-label');
+
+const anim = map.animate(data, {{
+  type:         '{kind}',
+  interval:     {interval},
+  layerOptions: opts,
+  onFrame: (i, f) => {{
+    scrubber.value    = i;
+    frameLabel.textContent = f.coord_value || `Frame ${{i}}`;
+  }},
+}});
+
+// Sync scrubber → animation
+scrubber.addEventListener('input', () => {{
+  anim.pause();
+  playBtn.textContent = '▶ Play';
+  anim.seek(parseInt(scrubber.value, 10));
+}});
+
+// Play/pause button
+playBtn.addEventListener('click', () => {{
+  if (playBtn.textContent.startsWith('▶')) {{
+    anim.play();
+    playBtn.textContent = '⏸ Pause';
+  }} else {{
+    anim.pause();
+    playBtn.textContent = '▶ Play';
+  }}
+}});
+
+// ── Colorbar ──────────────────────────────────────────────────────────────
+(function drawColorbar() {{
+  // Scan first frame's field for min/max
+  const field = data.frames[0].field;
+  let lo = {_js(vmin)}, hi = {_js(vmax)};
+  if (lo == null || hi == null) {{
+    lo = Infinity; hi = -Infinity;
+    for (const v of field) {{
+      if (isFinite(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
+    }}
+    // Also scan remaining frames to get global range
+    for (const fr of data.frames) {{
+      for (const v of fr.field) {{
+        if (isFinite(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
+      }}
+    }}
+  }}
+  const colorFn = resolveColormap('{cmap}');
+  const canvas  = document.getElementById('cbar');
+  const ctx     = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  for (let x = 0; x < W; x++) {{
+    const [r, g, b] = colorFn(x / (W - 1));
+    ctx.fillStyle = `rgb(${{r}},${{g}},${{b}})`;
+    ctx.fillRect(x, 0, 1, H);
+  }}
+  const ticks = document.getElementById('cbar-ticks');
+  for (let i = 0; i < 5; i++) {{
+    const v = lo + (i / 4) * (hi - lo);
+    const span = document.createElement('span');
+    span.textContent = v.toFixed(Math.abs(hi - lo) < 2 ? 2 : 1);
+    ticks.appendChild(span);
+  }}
+}})();
+</script>
+</body>
+</html>"""
