@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyterraplot"
-version = "0.1.0"
+version = "0.3.0"
 description = "xarray accessor + server bridge for the terraplot JS globe visualization library"
 readme = "README.md"
 license = { text = "MIT" }
@@ -36,7 +36,10 @@ serve = [
 cf = [
     "cf_xarray>=0.9",   # CF-convention coordinate name resolution
 ]
-all = ["pyterraplot[serve,cf]"]
+raster = [
+    "rioxarray>=0.15",  # GeoTIFF / COG export via .tp.to_cog()
+]
+all = ["pyterraplot[serve,cf,raster]"]
 
 [project.urls]
 Homepage   = "https://github.com/guidov/pyterraplot"

@@ -66,6 +66,23 @@ class TerraplotAccessor:
         serialize(self._da, lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon, path=p)
         return p
 
+    def to_cog(
+        self,
+        path: str | Path | None = None,
+        *,
+        lon_dim: str | None = None,
+        lat_dim: str | None = None,
+        wrap_lon: bool = True,
+        crs: str = "EPSG:4326",
+    ):
+        """Export to a Cloud-Optimized GeoTIFF (requires ``pyterraplot[raster]``).
+
+        Returns the output ``Path`` when ``path`` is given, else the COG bytes.
+        """
+        from .cog import to_cog as _to_cog
+        return _to_cog(self._da, path, lon_dim=lon_dim, lat_dim=lat_dim,
+                       wrap_lon=wrap_lon, crs=crs)
+
     # ── Live server ───────────────────────────────────────────────────────────
 
     def serve(
