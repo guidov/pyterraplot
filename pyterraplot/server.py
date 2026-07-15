@@ -497,6 +497,11 @@ input[type="range"]::-webkit-slider-thumb:hover {{
         </select>
     </div>
 
+    <div class="control-group" id="levels-group" style="display: none;">
+        <label for="levels-input">Contour Levels</label>
+        <input type="text" id="levels-input" value="12" placeholder="e.g. 12 or -10,-5,0,5,10" style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px; border-radius: 4px;"/>
+    </div>
+
     <div class="control-group">
         <label for="surface-select">Earth Surface</label>
         <select id="surface-select">
@@ -609,7 +614,18 @@ async function init() {{
     }});
     
     cmapSelect.addEventListener("change", () => loadField());
-    plotTypeSelect.addEventListener("change", () => loadField());
+    plotTypeSelect.addEventListener("change", () => {{
+        const type = plotTypeSelect.value;
+        const lg = document.getElementById("levels-group");
+        if (type === "contourf" || type === "contour") {{
+            lg.style.display = "block";
+        }} else {{
+            lg.style.display = "none";
+        }}
+        loadField();
+    }});
+    
+    document.getElementById("levels-input").addEventListener("change", () => loadField());
     alphaSlider.addEventListener("input", () => loadField());
     
     timeSlider.addEventListener("input", e => {{
@@ -701,6 +717,17 @@ function initializeMap() {{
     }}
 }}
 
+function parseLevelsValue() {{
+    const val = document.getElementById("levels-input").value.trim();
+    if (!val) return 12;
+    if (val.includes(",")) {{
+        const parts = val.split(",").map(x => parseFloat(x.trim())).filter(x => !isNaN(x));
+        return parts.length > 0 ? parts : 12;
+    }}
+    const intVal = parseInt(val);
+    return isNaN(intVal) ? 12 : intVal;
+}}
+
 async function loadField() {{
     if (!currentVar) return;
     
@@ -738,6 +765,8 @@ async function loadField() {{
         mapInstance.addFeature("coastlines");
     }}
     
+    const levelsVal = parseLevelsValue();
+    
     if (plotType === "pcolormesh") {{
         mapInstance.pcolormesh(payload.lons, payload.lats, payload.field, {{
             cmap: cmap,
@@ -753,7 +782,7 @@ async function loadField() {{
             alpha: alpha,
             vmin: minVal,
             vmax: maxVal,
-            levels: 12,
+            levels: levelsVal,
             name: payload.name,
             units: payload.units
         }});
@@ -763,7 +792,7 @@ async function loadField() {{
             alpha: alpha,
             vmin: minVal,
             vmax: maxVal,
-            levels: 12,
+            levels: levelsVal,
             name: payload.name,
             units: payload.units
         }});
