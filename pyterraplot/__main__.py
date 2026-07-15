@@ -82,9 +82,18 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--title", default="terraplot")
     p.add_argument("--symmetric", action="store_true",
                    help="(--compare only) force symmetric colour range")
+    p.add_argument("--viewer", action="store_true",
+                   help="Start the interactive visual NetCDF viewer server")
+    p.add_argument("--port", type=int, default=8765,
+                   help="Port to run the visual viewer server on (default 8765)")
     args = p.parse_args(argv)
 
     import pyterraplot  # noqa: F401  registers accessors
+
+    if args.viewer:
+        from pyterraplot.server import start_viewer
+        start_viewer(args.path, port=args.port)
+        return
 
     ds = _open(args)
 

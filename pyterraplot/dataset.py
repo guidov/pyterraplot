@@ -37,6 +37,18 @@ class TerraplotDatasetAccessor:
     def __init__(self, ds: xr.Dataset) -> None:
         self._ds = ds
 
+    def serve_viewer(
+        self,
+        port: int = 8765,
+        host: str = "127.0.0.1",
+        open_browser: bool = True,
+    ) -> None:
+        """
+        Start an interactive visual NetCDF viewer server for this dataset.
+        """
+        from .server import start_viewer
+        start_viewer(self._ds, host=host, port=port, open_browser=open_browser)
+
     # ── Vector field (quiver) HTML export ────────────────────────────────────
 
     def quiver_html(
