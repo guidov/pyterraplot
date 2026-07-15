@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--isel", nargs="*", default=[],
                    help="dim=index pairs to subset before plotting")
     p.add_argument("--animate", help="dim name to animate (e.g. time, lead_time)")
-    p.add_argument("--kind", default="pcolormesh", choices=["pcolormesh", "contourf"])
+    p.add_argument("--kind", default="pcolormesh", choices=["pcolormesh", "contourf", "contour"])
     p.add_argument("--cmap", default="viridis")
     p.add_argument("--alpha", type=float, default=0.85)
     p.add_argument("--vmin", type=float, default=None)

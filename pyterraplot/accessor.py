@@ -304,8 +304,8 @@ class TerraplotAccessor:
         lon_dim, lat_dim, wrap_lon, terraplot_bundle, height_px=None,
     ) -> str:
         """Shared HTML builder used by to_html() and _repr_html_()."""
-        if kind not in ("pcolormesh", "contourf"):
-            raise ValueError(f"kind must be 'pcolormesh' or 'contourf', got {kind!r}")
+        if kind not in ("pcolormesh", "contourf", "contour"):
+            raise ValueError(f"kind must be 'pcolormesh', 'contourf', or 'contour', got {kind!r}")
         payload = self.to_dict(lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
         long_name = payload.get("long_name") or payload.get("name") or title
         units = payload.get("units", "")
@@ -377,8 +377,8 @@ class TerraplotAccessor:
         coastlines : add coastlines in 2D mode (default True)
         interval   : ms between frames (default 700)
         """
-        if kind not in ("pcolormesh", "contourf"):
-            raise ValueError(f"kind must be 'pcolormesh' or 'contourf', got {kind!r}")
+        if kind not in ("pcolormesh", "contourf", "contour"):
+            raise ValueError(f"kind must be 'pcolormesh', 'contourf', or 'contour', got {kind!r}")
 
         compact   = self.frames_compact(dim=dim, lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon)
         b64       = pack_frames(compact)
@@ -389,7 +389,7 @@ class TerraplotAccessor:
 
         bundle_js = _load_terraplot_bundle(terraplot_bundle)
         use_2d    = projection is not None
-        levels_js = levels if kind == "contourf" else "null"
+        levels_js = levels if kind in ("contourf", "contour") else "null"
         center_js = f"[{center[0]}, {center[1]}]"
         extent_js = (f", extent: [{extent[0]}, {extent[1]}, {extent[2]}, {extent[3]}]"
                      if extent else "")
@@ -423,7 +423,7 @@ def _js(v: float | None) -> str:
 
 def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels) -> str:
     """JS snippet that creates a GeoSphere and plots a field."""
-    levels_js = levels if kind == "contourf" else "null"
+    levels_js = levels if kind in ("contourf", "contour") else "null"
     return f"""
 const map = new GeoSphere('#map');
 const opts = {{
@@ -441,7 +441,7 @@ def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
                       projection, coastlines, center, units,
                       extent=None) -> str:
     """JS snippet that creates a GeoMap (2D projection) and plots a field."""
-    levels_js = levels if kind == "contourf" else "null"
+    levels_js = levels if kind in ("contourf", "contour") else "null"
     center_js = f"[{center[0]}, {center[1]}]"
     extent_js = (f", extent: [{extent[0]}, {extent[1]}, {extent[2]}, {extent[3]}]"
                  if extent else "")

@@ -493,6 +493,7 @@ input[type="range"]::-webkit-slider-thumb:hover {{
         <select id="plot-type-select">
             <option value="pcolormesh">pcolormesh (Smooth)</option>
             <option value="contourf">contourf (Banded)</option>
+            <option value="contour">contour (Lines)</option>
         </select>
     </div>
 
@@ -719,8 +720,18 @@ async function loadField() {{
             name: payload.name,
             units: payload.units
         }});
-    }} else {{
+    }} else if (plotType === "contourf") {{
         mapInstance.contourf(payload.lons, payload.lats, payload.field, {{
+            cmap: cmap,
+            alpha: alpha,
+            vmin: minVal,
+            vmax: maxVal,
+            levels: 12,
+            name: payload.name,
+            units: payload.units
+        }});
+    }} else {{
+        mapInstance.contour(payload.lons, payload.lats, payload.field, {{
             cmap: cmap,
             alpha: alpha,
             vmin: minVal,
