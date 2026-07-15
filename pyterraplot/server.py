@@ -170,9 +170,9 @@ def start_viewer(
         # Subset level dimension if it exists
         if level is not None:
             if "level" in da.dims:
-                da = da.sel(level=level)
+                da = da.sel(level=level, method="nearest")
             elif "vertical" in da.dims:
-                da = da.sel(vertical=level)
+                da = da.sel(vertical=level, method="nearest")
         else:
             if "level" in da.dims:
                 da = da.isel(level=0)
@@ -479,9 +479,12 @@ input[type="range"]::-webkit-slider-thumb:hover {{
             <option value="viridis">Standard (viridis)</option>
             <option value="plasma">Plasma (plasma)</option>
             <option value="inferno">Dark Hot (inferno)</option>
-            <option value="bwr">Diverging (bwr)</option>
+            <option value="magma">Magma (magma)</option>
             <option value="RdBu_r">Anomalies (RdBu_r)</option>
-            <option value="jet">Spectral (jet)</option>
+            <option value="Spectral_r">Spectral (Spectral_r)</option>
+            <option value="YlGnBu">Precipitation (YlGnBu)</option>
+            <option value="Blues">Blues (Blues)</option>
+            <option value="Greys">Greys (Greys)</option>
         </select>
     </div>
 
@@ -685,6 +688,22 @@ async function loadField() {{
     const cmap = cmapSelect.value;
     const alpha = parseFloat(alphaSlider.value);
     
+    // Calculate field min and max dynamically
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+    const flatField = payload.field.flat(Infinity);
+    for (let i = 0; i < flatField.length; i++) {{
+        const v = flatField[i];
+        if (v != null && isFinite(v)) {{
+            if (v < minVal) minVal = v;
+            if (v > maxVal) maxVal = v;
+        }}
+    }}
+    if (minVal === Infinity) {{
+        minVal = 0;
+        maxVal = 1;
+    }}
+    
     mapInstance.clearAll();
     if (projSelect.value !== "3d") {{
         mapInstance.addFeature("coastlines");
@@ -694,6 +713,8 @@ async function loadField() {{
         mapInstance.pcolormesh(payload.lons, payload.lats, payload.field, {{
             cmap: cmap,
             alpha: alpha,
+            vmin: minVal,
+            vmax: maxVal,
             name: payload.name,
             units: payload.units
         }});
@@ -701,33 +722,18 @@ async function loadField() {{
         mapInstance.contourf(payload.lons, payload.lats, payload.field, {{
             cmap: cmap,
             alpha: alpha,
+            vmin: minVal,
+            vmax: maxVal,
             levels: 12,
             name: payload.name,
             units: payload.units
         }});
     }}
     
-    updateColorbar(payload.field, cmap, payload.long_name, payload.units);
+    updateColorbar(minVal, maxVal, cmap, payload.long_name, payload.units);
 }}
 
-function updateColorbar(field, cmap, longName, units) {{
-    // Calculate color scale min and max
-    let min = Infinity;
-    let max = -Infinity;
-    const flatField = field.flat(Infinity);
-    for (let i = 0; i < flatField.length; i++) {{
-        const v = flatField[i];
-        if (v != null && isFinite(v)) {{
-            if (v < min) min = v;
-            if (v > max) max = v;
-        }}
-    }}
-    
-    if (min === Infinity) {{
-        min = 0;
-        max = 1;
-    }}
-    
+function updateColorbar(min, max, cmap, longName, units) {{
     // Update labels
     document.getElementById("cbar-label").textContent = longName + (units ? ` (${{units}})` : "");
     document.getElementById("tick-min").textContent = min.toFixed(2);
