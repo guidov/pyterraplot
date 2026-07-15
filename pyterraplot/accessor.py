@@ -254,6 +254,7 @@ class TerraplotAccessor:
         lat_dim: str | None = None,
         wrap_lon: bool = True,
         terraplot_bundle: str | Path | None = None,
+        earth_surface: str = "satellite",
     ) -> Path:
         """
         Export a self-contained HTML file that renders the field.
@@ -293,6 +294,7 @@ class TerraplotAccessor:
             center=center, extent=extent, binary=binary,
             lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon,
             terraplot_bundle=terraplot_bundle,
+            earth_surface=earth_surface,
         )
         p = Path(path)
         p.write_text(html)
@@ -301,7 +303,7 @@ class TerraplotAccessor:
     def _build_html(
         self, *, kind, title, cmap, alpha, vmin, vmax, levels,
         projection, coastlines, center, extent, binary,
-        lon_dim, lat_dim, wrap_lon, terraplot_bundle, height_px=None,
+        lon_dim, lat_dim, wrap_lon, terraplot_bundle, earth_surface="satellite", height_px=None,
     ) -> str:
         """Shared HTML builder used by to_html() and _repr_html_()."""
         if kind not in ("pcolormesh", "contourf", "contour"):
@@ -324,9 +326,9 @@ class TerraplotAccessor:
 
         if use_2d:
             map_init = _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
-                                         projection, coastlines, center, units, extent)
+                                         projection, coastlines, center, units, extent, earth_surface=earth_surface)
         else:
-            map_init = _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels)
+            map_init = _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface=earth_surface)
 
         return _html_single(
             title=title, label=label, units=units,
@@ -359,6 +361,7 @@ class TerraplotAccessor:
         lat_dim: str | None = None,
         wrap_lon: bool = True,
         terraplot_bundle: str | Path | None = None,
+        earth_surface: str = "satellite",
     ) -> Path:
         """
         Export a self-contained animated HTML file.
@@ -395,9 +398,9 @@ class TerraplotAccessor:
                      if extent else "")
 
         map_ctor = (
-            f"new GeoMap('#map', {{ projection: '{projection}', center: {center_js}{extent_js}, background: 'transparent', tooltip: true }})"
+            f"new GeoMap('#map', {{ projection: '{projection}', center: {center_js}{extent_js}, background: 'transparent', earthSurface: '{earth_surface}', tooltip: true }})"
             if use_2d else
-            "new GeoSphere('#map')"
+            f"new GeoSphere('#map', {{ earthSurface: '{earth_surface}' }})"
         )
         coastlines_line = "map.addFeature('coastlines');" if (use_2d and coastlines) else ""
 
@@ -421,11 +424,11 @@ def _js(v: float | None) -> str:
     return "null" if v is None else repr(float(v))
 
 
-def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels) -> str:
+def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface) -> str:
     """JS snippet that creates a GeoSphere and plots a field."""
     levels_js = levels if kind in ("contourf", "contour") else "null"
     return f"""
-const map = new GeoSphere('#map');
+const map = new GeoSphere('#map', {{ earthSurface: '{earth_surface}' }});
 const opts = {{
   cmap:   '{cmap}',
   alpha:  {alpha},
@@ -439,7 +442,7 @@ map.{kind}(payload.lons, payload.lats, payload.field, opts);
 
 def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
                       projection, coastlines, center, units,
-                      extent=None) -> str:
+                      extent=None, earth_surface="satellite") -> str:
     """JS snippet that creates a GeoMap (2D projection) and plots a field."""
     levels_js = levels if kind in ("contourf", "contour") else "null"
     center_js = f"[{center[0]}, {center[1]}]"
@@ -451,6 +454,7 @@ const map = new GeoMap('#map', {{
   projection: '{projection}',
   center:     {center_js}{extent_js},
   background: 'transparent',
+  earthSurface: '{earth_surface}',
   tooltip:    true,
 }});
 const opts = {{

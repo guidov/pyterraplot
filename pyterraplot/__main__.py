@@ -79,6 +79,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--extent", nargs=4, type=float, default=None,
                    metavar=("LON0", "LON1", "LAT0", "LAT1"))
     p.add_argument("--interval", type=int, default=700, help="animation ms/frame")
+    p.add_argument("--earth-surface", default="satellite", choices=["satellite", "shaded_relief", "stock", "outline"], help="earth surface background style")
     p.add_argument("--title", default="terraplot")
     p.add_argument("--symmetric", action="store_true",
                    help="(--compare only) force symmetric colour range")
@@ -144,6 +145,7 @@ def main(argv: list[str] | None = None) -> None:
             center=tuple(args.center),
             extent=tuple(args.extent) if args.extent else None,
             interval=args.interval,
+            earth_surface=args.earth_surface,
         )
     else:
         da = _maybe_select_2d(da, args)
@@ -155,6 +157,7 @@ def main(argv: list[str] | None = None) -> None:
             coastlines=not args.no_coastlines,
             center=tuple(args.center),
             extent=tuple(args.extent) if args.extent else None,
+            earth_surface=args.earth_surface,
         )
 
     print(f"wrote {out}")

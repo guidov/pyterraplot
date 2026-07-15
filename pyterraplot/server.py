@@ -498,6 +498,15 @@ input[type="range"]::-webkit-slider-thumb:hover {{
     </div>
 
     <div class="control-group">
+        <label for="surface-select">Earth Surface</label>
+        <select id="surface-select">
+            <option value="satellite">Satellite Imagery</option>
+            <option value="shaded_relief">Shaded Relief (Stock)</option>
+            <option value="outline">Vector Outline Only</option>
+        </select>
+    </div>
+
+    <div class="control-group">
         <label for="alpha-slider">Opacity</label>
         <input type="range" id="alpha-slider" min="0" max="1" step="0.05" value="0.75"/>
     </div>
@@ -545,6 +554,7 @@ const varSelect = document.getElementById("var-select");
 const levelSelect = document.getElementById("level-select");
 const levelGroup = document.getElementById("level-group");
 const projSelect = document.getElementById("proj-select");
+const surfaceSelect = document.getElementById("surface-select");
 const cmapSelect = document.getElementById("cmap-select");
 const plotTypeSelect = document.getElementById("plot-type-select");
 const alphaSlider = document.getElementById("alpha-slider");
@@ -589,6 +599,11 @@ async function init() {{
     }});
     
     projSelect.addEventListener("change", e => {{
+        initializeMap();
+        loadField();
+    }});
+    
+    surfaceSelect.addEventListener("change", () => {{
         initializeMap();
         loadField();
     }});
@@ -655,6 +670,7 @@ function updateTimeDisplay() {{
 
 function initializeMap() {{
     const proj = projSelect.value;
+    const surface = surfaceSelect.value;
     
     if (mapInstance) {{
         mapInstance.dispose();
@@ -662,15 +678,26 @@ function initializeMap() {{
     }}
     
     if (proj === "3d") {{
-        mapInstance = new GeoSphere("#map", {{ tooltip: true }});
+        mapInstance = new GeoSphere("#map", {{ 
+            earthSurface: surface,
+            tooltip: true 
+        }});
+        if (surface === "outline") {{
+            mapInstance.addFeature("coastlines");
+            mapInstance.addFeature("borders");
+        }}
     }} else {{
         mapInstance = new GeoMap("#map", {{
             projection: proj,
             center: [0, 0],
             background: "transparent",
+            earthSurface: surface,
             tooltip: true
         }});
         mapInstance.addFeature("coastlines");
+        if (surface === "outline") {{
+            mapInstance.addFeature("borders");
+        }}
     }}
 }}
 
