@@ -392,7 +392,7 @@ class TerraplotAccessor:
 
         bundle_js = _load_terraplot_bundle(terraplot_bundle)
         use_2d    = projection is not None
-        levels_js = levels if kind in ("contourf", "contour") else "null"
+        levels_js = _js_levels(levels, kind)
         center_js = f"[{center[0]}, {center[1]}]"
         extent_js = (f", extent: [{extent[0]}, {extent[1]}, {extent[2]}, {extent[3]}]"
                      if extent else "")
@@ -424,9 +424,21 @@ def _js(v: float | None) -> str:
     return "null" if v is None else repr(float(v))
 
 
+def _js_levels(levels, kind) -> str:
+    if kind not in ("contourf", "contour"):
+        return "null"
+    if hasattr(levels, "tolist"):
+        val = levels.tolist()
+    elif isinstance(levels, (list, tuple)):
+        val = list(levels)
+    else:
+        val = levels
+    return json.dumps(val)
+
+
 def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface) -> str:
     """JS snippet that creates a GeoSphere and plots a field."""
-    levels_js = levels if kind in ("contourf", "contour") else "null"
+    levels_js = _js_levels(levels, kind)
     return f"""
 const map = new GeoSphere('#map', {{ earthSurface: '{earth_surface}' }});
 const opts = {{
@@ -444,7 +456,7 @@ def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
                       projection, coastlines, center, units,
                       extent=None, earth_surface="satellite") -> str:
     """JS snippet that creates a GeoMap (2D projection) and plots a field."""
-    levels_js = levels if kind in ("contourf", "contour") else "null"
+    levels_js = _js_levels(levels, kind)
     center_js = f"[{center[0]}, {center[1]}]"
     extent_js = (f", extent: [{extent[0]}, {extent[1]}, {extent[2]}, {extent[3]}]"
                  if extent else "")
