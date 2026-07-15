@@ -864,7 +864,8 @@ window.addEventListener("load", () => {{
 </script>
 </body>
 </html>"""
-        return HTMLResponse(content=html_content)
+        headers = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+        return HTMLResponse(content=html_content, headers=headers)
 
     if open_browser:
         url = f"http://{host}:{port}"
