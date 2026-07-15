@@ -666,6 +666,7 @@ function initializeMap() {{
         mapInstance = new GeoMap("#map", {{
             projection: proj,
             center: [0, 0],
+            background: "transparent",
             tooltip: true
         }});
         mapInstance.addFeature("coastlines");
@@ -789,7 +790,9 @@ function stopPlay() {{
 }}
 
 // Initialize on page load
-init();
+window.addEventListener("load", () => {{
+    setTimeout(init, 50);
+}});
 
 </script>
 </body>
