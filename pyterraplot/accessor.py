@@ -395,7 +395,7 @@ class TerraplotAccessor:
                      if extent else "")
 
         map_ctor = (
-            f"new GeoMap('#map', {{ projection: '{projection}', center: {center_js}{extent_js}, tooltip: true }})"
+            f"new GeoMap('#map', {{ projection: '{projection}', center: {center_js}{extent_js}, background: 'transparent', tooltip: true }})"
             if use_2d else
             "new GeoSphere('#map')"
         )
@@ -450,6 +450,7 @@ def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
 const map = new GeoMap('#map', {{
   projection: '{projection}',
   center:     {center_js}{extent_js},
+  background: 'transparent',
   tooltip:    true,
 }});
 const opts = {{

@@ -167,6 +167,7 @@ import {{ Colorbar }} from 'data:text/javascript;base64,';
 const map = new GeoMap('#map', {{
   projection: '{projection}',
   center: {center_js}{extent_js},
+  background: 'transparent',
   tooltip: true,
 }});
 {coastlines_js}
@@ -288,6 +289,7 @@ for (const [el, data] of [['#map-a', aData], ['#map-b', bData]]) {{
   const m = new GeoMap(el, {{
     projection: '{projection}',
     center: {center_js}{extent_js},
+    background: 'transparent',
     tooltip: true,
   }});
 {coastlines_js}  m.pcolormesh(data.lons, data.lats, data.field, {{
