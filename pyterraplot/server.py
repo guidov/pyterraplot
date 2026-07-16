@@ -652,7 +652,7 @@ async function init() {{
             }});
             const result = await res.json();
             if (res.ok) {{
-                loadStatus.textContent = `Loaded: ${result.filename}`;
+                loadStatus.textContent = `Loaded: ${{result.filename}}`;
                 loadStatus.style.color = "#10b981";
                 document.getElementById("filename-badge").textContent = result.filename;
                 
@@ -679,7 +679,7 @@ async function init() {{
                 loadStatus.style.color = "#ef4444";
             }}
         }} catch (err) {{
-            loadStatus.textContent = `Error: ${err.message}`;
+            loadStatus.textContent = `Error: ${{err.message}}`;
             loadStatus.style.color = "#ef4444";
         }}
     }});
