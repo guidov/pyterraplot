@@ -215,6 +215,48 @@ def start_viewer(
         except Exception as ex:
             return JSONResponse({"error": f"Failed to load dataset: {str(ex)}"}, status_code=500)
 
+    @app.get("/browse")
+    async def browse_directory(path: str | None = None):
+        import os
+        if path is None or path.strip() == "":
+            path = os.getcwd()
+            
+        if os.path.isfile(path):
+            path = os.path.dirname(path)
+            
+        abs_path = os.path.abspath(path)
+        if not os.path.exists(abs_path) or not os.path.isdir(abs_path):
+            return JSONResponse({"error": "Directory does not exist"}, status_code=400)
+            
+        try:
+            entries = os.listdir(abs_path)
+        except Exception as e:
+            return JSONResponse({"error": f"Permission denied: {str(e)}"}, status_code=403)
+            
+        dirs = []
+        files = []
+        
+        for entry in sorted(entries):
+            if entry.startswith("."):
+                continue
+            entry_path = os.path.join(abs_path, entry)
+            try:
+                if os.path.isdir(entry_path):
+                    dirs.append({"name": entry, "path": entry_path})
+                elif os.path.isfile(entry_path) and entry.endswith(".nc"):
+                    files.append({"name": entry, "path": entry_path})
+            except Exception:
+                pass
+                
+        parent = os.path.dirname(abs_path) if abs_path != "/" else None
+        
+        return {
+            "current_path": abs_path,
+            "parent": parent,
+            "dirs": dirs,
+            "files": files
+        }
+
     @app.get("/", response_class=HTMLResponse)
     async def get_viewer_page():
         from .accessor import _load_terraplot_bundle, _SHARED_CSS, _IMPORTMAP
@@ -481,9 +523,15 @@ input[type="range"]::-webkit-slider-thumb:hover {{
         <label for="filepath-input">Load NetCDF File Path</label>
         <div style="display: flex; gap: 8px; margin-top: 4px;">
             <input type="text" id="filepath-input" placeholder="e.g. /path/to/file.nc" style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px; border-radius: 4px; font-size: 13px; min-width: 0;"/>
+            <button id="browse-btn" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.15); padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; transition: background 0.2s;" title="Browse Files">📁</button>
             <button id="load-file-btn" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 13px; transition: background 0.2s; white-space: nowrap;">Load</button>
         </div>
         <div id="load-status" style="font-size: 12px; margin-top: 6px; color: #94a3b8; word-break: break-all;"></div>
+        
+        <div id="file-browser-panel" style="display: none; margin-top: 10px; background: rgba(15,23,42,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px; max-height: 250px; overflow-y: auto; font-size: 12px; backdrop-filter: blur(10px);">
+            <div id="browser-current-path" style="font-weight: 600; color: #38bdf8; margin-bottom: 6px; word-break: break-all; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;"></div>
+            <div id="browser-list" style="display: flex; flex-direction: column; gap: 4px;"></div>
+        </div>
     </div>
 
     <div class="control-group">
@@ -609,6 +657,11 @@ const loadFileBtn = document.getElementById("load-file-btn");
 const filepathInput = document.getElementById("filepath-input");
 const loadStatus = document.getElementById("load-status");
 
+const browseBtn = document.getElementById("browse-btn");
+const fileBrowserPanel = document.getElementById("file-browser-panel");
+const browserCurrentPath = document.getElementById("browser-current-path");
+const browserList = document.getElementById("browser-list");
+
 // Init application
 async function init() {{
     const response = await fetch("/metadata");
@@ -683,6 +736,84 @@ async function init() {{
             loadStatus.style.color = "#ef4444";
         }}
     }});
+    
+    // Toggle File Browser
+    browseBtn.addEventListener("click", () => {{
+        if (fileBrowserPanel.style.display === "none") {{
+            fileBrowserPanel.style.display = "block";
+            const currentPath = filepathInput.value.trim() ? filepathInput.value.trim() : "";
+            loadDirectory(currentPath);
+        }} else {{
+            fileBrowserPanel.style.display = "none";
+        }}
+    }});
+
+    async function loadDirectory(path) {{
+        try {{
+            let url = "/browse";
+            if (path) {{
+                url += `?path=${{encodeURIComponent(path)}}`;
+            }}
+            const res = await fetch(url);
+            if (!res.ok) {{
+                if (path) {{
+                    const lastSlash = path.lastIndexOf("/");
+                    if (lastSlash > 0) {{
+                        return loadDirectory(path.substring(0, lastSlash));
+                    }}
+                }}
+                return loadDirectory("");
+            }}
+            const data = await res.json();
+            
+            browserCurrentPath.textContent = data.current_path;
+            browserList.innerHTML = "";
+            
+            if (data.parent) {{
+                const item = document.createElement("div");
+                item.style.cssText = "cursor: pointer; padding: 4px; border-radius: 3px; color: #94a3b8; display: flex; align-items: center; gap: 6px; transition: background 0.1s;";
+                item.innerHTML = "<span>⬆️</span> <span>.. (Parent Directory)</span>";
+                item.addEventListener("mouseenter", () => item.style.backgroundColor = "rgba(255,255,255,0.05)");
+                item.addEventListener("mouseleave", () => item.style.backgroundColor = "transparent");
+                item.addEventListener("click", () => loadDirectory(data.parent));
+                browserList.appendChild(item);
+            }}
+            
+            data.dirs.forEach(d => {{
+                const item = document.createElement("div");
+                item.style.cssText = "cursor: pointer; padding: 4px; border-radius: 3px; color: #f1f5f9; display: flex; align-items: center; gap: 6px; transition: background 0.1s;";
+                item.innerHTML = `<span>📁</span> <span style="font-weight: 500;">${{d.name}}</span>`;
+                item.addEventListener("mouseenter", () => item.style.backgroundColor = "rgba(255,255,255,0.05)");
+                item.addEventListener("mouseleave", () => item.style.backgroundColor = "transparent");
+                item.addEventListener("click", () => loadDirectory(d.path));
+                browserList.appendChild(item);
+            }});
+            
+            data.files.forEach(f => {{
+                const item = document.createElement("div");
+                item.style.cssText = "cursor: pointer; padding: 4px; border-radius: 3px; color: #38bdf8; display: flex; align-items: center; gap: 6px; transition: background 0.1s;";
+                item.innerHTML = `<span>📄</span> <span>${{f.name}}</span>`;
+                item.addEventListener("mouseenter", () => item.style.backgroundColor = "rgba(56,189,248,0.1)");
+                item.addEventListener("mouseleave", () => item.style.backgroundColor = "transparent");
+                item.addEventListener("click", () => {{
+                    filepathInput.value = f.path;
+                    fileBrowserPanel.style.display = "none";
+                    loadFileBtn.click();
+                }});
+                browserList.appendChild(item);
+            }});
+            
+            if (data.dirs.length === 0 && data.files.length === 0) {{
+                const empty = document.createElement("div");
+                empty.style.cssText = "color: #64748b; padding: 4px; font-style: italic;";
+                empty.textContent = "No subdirectories or .nc files found.";
+                browserList.appendChild(empty);
+            }}
+            
+        }} catch (err) {{
+            console.error("Browse failed:", err);
+        }}
+    }}
     
     // Setup event listeners
     varSelect.addEventListener("change", e => {{
