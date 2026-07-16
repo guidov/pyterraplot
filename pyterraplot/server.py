@@ -106,11 +106,16 @@ def start_viewer(
         ds = dataset_or_path
         filename_title = "In-Memory Dataset"
 
-    app = FastAPI(title=f"pyterraplot NetCDF Viewer - {filename_title}")
+    state = {
+        "ds": ds,
+        "filename_title": filename_title
+    }
+
+    app = FastAPI(title=f"pyterraplot NetCDF Viewer")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
 
@@ -123,8 +128,8 @@ def start_viewer(
         import numpy as np
         variables_info = {}
         
-        for name in ds.data_vars:
-            da = ds[name]
+        for name in state["ds"].data_vars:
+            da = state["ds"][name]
             # Ensure the DataArray has latitude and longitude dimensions
             dims_lower = [d.lower() for d in da.dims]
             has_lat = any(d in dims_lower for d in ["lat", "latitude", "y", "rlat"])
@@ -154,14 +159,14 @@ def start_viewer(
                 "times": times,
             }
             
-        return {"filename": filename_title, "variables": variables_info}
+        return {"filename": state["filename_title"], "variables": variables_info}
 
     @app.get("/data")
     async def get_data(var: str, time_idx: int = 0, level: float | None = None):
-        if var not in ds.data_vars:
+        if var not in state["ds"].data_vars:
             return JSONResponse({"error": f"Variable {var} not found"}, status_code=400)
             
-        da = ds[var]
+        da = state["ds"][var]
         
         # Subset time dimension if it exists
         if "time" in da.dims:
@@ -188,6 +193,27 @@ def start_viewer(
         # Serialize utilizing the registered tp accessor
         payload = da.tp.to_dict()
         return JSONResponse(payload)
+
+    @app.post("/load_dataset")
+    async def load_dataset(data: dict):
+        path_str = data.get("path")
+        if not path_str:
+            return JSONResponse({"error": "No file path provided"}, status_code=400)
+        p = Path(path_str)
+        if not p.exists():
+            return JSONResponse({"error": f"File not found at {path_str}"}, status_code=400)
+        try:
+            new_ds = xr.open_dataset(p)
+            if hasattr(state["ds"], "close"):
+                try:
+                    state["ds"].close()
+                except Exception:
+                    pass
+            state["ds"] = new_ds
+            state["filename_title"] = p.name
+            return {"status": "success", "filename": p.name}
+        except Exception as ex:
+            return JSONResponse({"error": f"Failed to load dataset: {str(ex)}"}, status_code=500)
 
     @app.get("/", response_class=HTMLResponse)
     async def get_viewer_page():
@@ -451,6 +477,15 @@ input[type="range"]::-webkit-slider-thumb:hover {{
     <h1>terraplot</h1>
     <div class="filename-badge" id="filename-badge">Loading...</div>
 
+    <div class="control-group" style="margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px;">
+        <label for="filepath-input">Load NetCDF File Path</label>
+        <div style="display: flex; gap: 8px; margin-top: 4px;">
+            <input type="text" id="filepath-input" placeholder="e.g. /path/to/file.nc" style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px; border-radius: 4px; font-size: 13px; min-width: 0;"/>
+            <button id="load-file-btn" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 13px; transition: background 0.2s; white-space: nowrap;">Load</button>
+        </div>
+        <div id="load-status" style="font-size: 12px; margin-top: 6px; color: #94a3b8; word-break: break-all;"></div>
+    </div>
+
     <div class="control-group">
         <label for="var-select">Variable</label>
         <select id="var-select"></select>
@@ -570,6 +605,10 @@ const playBtn = document.getElementById("play-btn");
 const playIcon = document.getElementById("play-icon");
 const pauseIcon = document.getElementById("pause-icon");
 
+const loadFileBtn = document.getElementById("load-file-btn");
+const filepathInput = document.getElementById("filepath-input");
+const loadStatus = document.getElementById("load-status");
+
 // Init application
 async function init() {{
     const response = await fetch("/metadata");
@@ -591,6 +630,59 @@ async function init() {{
         currentVar = varSelect.value;
         configureVariableUI();
     }}
+    
+    // Setup file load listener
+    loadFileBtn.addEventListener("click", async () => {{
+        const path = filepathInput.value.trim();
+        if (!path) {{
+            loadStatus.textContent = "Please enter a file path.";
+            loadStatus.style.color = "#ef4444";
+            return;
+        }}
+        loadStatus.textContent = "Loading...";
+        loadStatus.style.color = "#94a3b8";
+        
+        try {{
+            const res = await fetch("/load_dataset", {{
+                method: "POST",
+                headers: {{
+                    "Content-Type": "application/json"
+                }},
+                body: JSON.stringify({{ path: path }})
+            }});
+            const result = await res.json();
+            if (res.ok) {{
+                loadStatus.textContent = `Loaded: ${result.filename}`;
+                loadStatus.style.color = "#10b981";
+                document.getElementById("filename-badge").textContent = result.filename;
+                
+                // Reload metadata and re-configure UI
+                const metaResponse = await fetch("/metadata");
+                datasetMetadata = await metaResponse.json();
+                
+                // Re-populate variables dropdown
+                const variables = datasetMetadata.variables;
+                varSelect.innerHTML = "";
+                Object.keys(variables).forEach(name => {{
+                    const opt = document.createElement("option");
+                    opt.value = name;
+                    opt.textContent = variables[name].long_name || name;
+                    varSelect.appendChild(opt);
+                }});
+                
+                if (Object.keys(variables).length > 0) {{
+                    currentVar = varSelect.value;
+                    configureVariableUI();
+                }}
+            }} else {{
+                loadStatus.textContent = result.error || "Failed to load dataset.";
+                loadStatus.style.color = "#ef4444";
+            }}
+        }} catch (err) {{
+            loadStatus.textContent = `Error: ${err.message}`;
+            loadStatus.style.color = "#ef4444";
+        }}
+    }});
     
     // Setup event listeners
     varSelect.addEventListener("change", e => {{
