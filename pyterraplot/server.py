@@ -260,7 +260,9 @@ def start_viewer(
     @app.get("/", response_class=HTMLResponse)
     async def get_viewer_page():
         from .accessor import _load_terraplot_bundle, _SHARED_CSS, _IMPORTMAP
+        from .colormaps import cmap_options_html
         bundle_js = _load_terraplot_bundle(None)
+        cmap_options = cmap_options_html()
         
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -558,16 +560,7 @@ input[type="range"]::-webkit-slider-thumb:hover {{
     <div class="control-group">
         <label for="cmap-select">Colormap</label>
         <select id="cmap-select">
-            <option value="RdYlBu_r">Temperature (RdYlBu_r)</option>
-            <option value="viridis">Standard (viridis)</option>
-            <option value="plasma">Plasma (plasma)</option>
-            <option value="inferno">Dark Hot (inferno)</option>
-            <option value="magma">Magma (magma)</option>
-            <option value="RdBu_r">Anomalies (RdBu_r)</option>
-            <option value="Spectral_r">Spectral (Spectral_r)</option>
-            <option value="YlGnBu">Precipitation (YlGnBu)</option>
-            <option value="Blues">Blues (Blues)</option>
-            <option value="Greys">Greys (Greys)</option>
+{cmap_options}
         </select>
     </div>
 

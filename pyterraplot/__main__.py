@@ -53,7 +53,9 @@ def _maybe_select_2d(da, args):
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="pyterraplot", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("path", help="path to .nc / .zarr / .grib2 / .h5 etc.")
+    p.add_argument("path", help="path to .nc / .zarr / .grib2 / .h5 etc.", nargs="?", default=None)
+    p.add_argument("--list-cmaps", action="store_true",
+                   help="print all colormap names (matplotlib/d3 + cmocean) and exit")
     p.add_argument("--var", help="single-variable name (use to_html / frames_to_html)")
     p.add_argument("--u", help="u-wind variable (use with --v for quiver)")
     p.add_argument("--v", help="v-wind variable")
@@ -66,7 +68,10 @@ def main(argv: list[str] | None = None) -> None:
                    help="dim=index pairs to subset before plotting")
     p.add_argument("--animate", help="dim name to animate (e.g. time, lead_time)")
     p.add_argument("--kind", default="pcolormesh", choices=["pcolormesh", "contourf", "contour"])
-    p.add_argument("--cmap", default="viridis")
+    p.add_argument("--cmap", default="viridis",
+                   help="colormap name — matplotlib/d3 (viridis, RdBu_r, ...) or "
+                        "cmocean (thermal, haline, ice, balance, ...); "
+                        "see --list-cmaps")
     p.add_argument("--alpha", type=float, default=0.85)
     p.add_argument("--vmin", type=float, default=None)
     p.add_argument("--vmax", type=float, default=None)
@@ -88,6 +93,18 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--port", type=int, default=8765,
                    help="Port to run the visual viewer server on (default 8765)")
     args = p.parse_args(argv)
+
+    from .colormaps import format_cmap_help, is_valid_cmap
+
+    if args.list_cmaps:
+        print(format_cmap_help())
+        return
+
+    if not args.path:
+        p.error("the following arguments are required: path (or use --list-cmaps)")
+
+    if not is_valid_cmap(args.cmap):
+        sys.exit(f"unknown cmap {args.cmap!r}.\n\n{format_cmap_help()}")
 
     import pyterraplot  # noqa: F401  registers accessors
 

@@ -329,7 +329,9 @@ class TestToHtmlProjections:
 
     @pytest.mark.parametrize("cmap", [
         "viridis", "plasma", "RdBu_r", "RdYlBu_r", "Spectral_r",
-        "Greys", "YlGnBu", "PuBuGn",
+        "Greys", "YlGnBu", "PuBuGn", "BrBG",
+        "thermal", "haline", "ice", "balance", "speed", "topo",   # cmocean
+        "thermal_r", "oxy_r",                                         # cmocean reversed
     ])
     def test_colormap_names_accepted(self, tmp_path, cmap):
         da  = make_da()
@@ -517,3 +519,39 @@ class TestEdgeCases:
         da = make_da()
         with pytest.raises(ValueError, match="kind"):
             da.tp.to_html(tmp_path / "bad.html", kind="scatter")
+
+
+# ── Colormap registry (cmocean + matplotlib/d3) ────────────────────────────────
+
+class TestColormapRegistry:
+    def test_cmocean_complete(self):
+        """All 22 cmocean colormaps + reversals are registered."""
+        from pyterraplot.colormaps import CMOCEAN, CMOCEAN_REVERSED, ALL_COLORMAPS
+        assert len(CMOCEAN) == 22
+        assert len(CMOCEAN_REVERSED) == 22
+        for name in (*CMOCEAN, *CMOCEAN_REVERSED):
+            assert name in ALL_COLORMAPS
+
+    def test_cmocean_matches_reference_set(self):
+        """The canonical cmocean names from matplotlib.org/cmocean."""
+        from pyterraplot.colormaps import CMOCEAN
+        reference = {
+            "algae", "amp", "balance", "curl", "deep", "delta", "dense",
+            "diff", "gray", "haline", "ice", "matter", "oxy", "phase",
+            "rain", "solar", "speed", "tarn", "tempo", "thermal", "topo",
+            "turbid",
+        }
+        assert set(CMOCEAN) == reference
+
+    def test_options_html_includes_groups(self):
+        from pyterraplot.colormaps import cmap_options_html
+        html = cmap_options_html(selected="thermal")
+        assert '<optgroup label="cmocean (oceanographic)">' in html
+        assert '<option value="thermal" selected>thermal</option>' in html
+        assert '<option value="viridis">viridis</option>' in html
+
+    def test_is_valid_cmap(self):
+        from pyterraplot.colormaps import is_valid_cmap
+        assert is_valid_cmap("thermal")
+        assert is_valid_cmap("haline_r")
+        assert not is_valid_cmap("not_a_cmap")
