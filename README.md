@@ -133,6 +133,14 @@ Layers render stacked in call order, and passing the same DataArray to several
 primitives embeds the payload only once. In Jupyter, an Axes displays inline
 (as its `_repr_html_`), so the last line is optional in a notebook.
 
+`contourf` and `contour` with the same `levels` align **pixel-exactly**: like
+matplotlib (one contour generator producing both lines and filled regions —
+see contourpy's `mpl2014` algorithm), both derive their geometry from the same
+marching-squares rings at the same band-edge thresholds, so isolines land on
+the fill band boundaries by construction. This holds for the 3D globe and
+every 2D projection, including NaN knockout regions (fills mask NaN cells,
+isolines wrap around them).
+
 Primitives:
 
 | Method | Notes |

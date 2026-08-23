@@ -471,7 +471,7 @@ def _js_levels(levels, kind) -> str:
 
 
 def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface,
-                         spin=True, coastlines=False,
+                         spin=True, coastlines=False, center=(0, 0),
                          coastline_color="#39FF14", coastline_width=2.0) -> str:
     """JS snippet that creates a GeoSphere and plots a field."""
     levels_js = _js_levels(levels, kind)
@@ -480,6 +480,7 @@ def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface,
         if coastlines else "")
     return f"""
 const map = new GeoSphere('#map', {{ earthSurface: '{earth_surface}', autoRotate: {str(spin).lower()} }});
+map.setPointOfView({{ lat: {center[1]}, lng: {center[0]}, altitude: 2.5 }});
 const opts = {{
   cmap:   '{cmap}',
   alpha:  {alpha},

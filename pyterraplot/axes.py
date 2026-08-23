@@ -191,7 +191,8 @@ class Axes:
                     + f", background: '{self.background or 'transparent'}', earthSurface: '{self.earth_surface}', tooltip: true }})")
         else:
             ctor = (f"new GeoSphere('#map', {{ earthSurface: '{self.earth_surface}', "
-                    f"autoRotate: {str(self.spin).lower()} }})")
+                    f"autoRotate: {str(self.spin).lower()} }});\n"
+                    f"map.setPointOfView({{ lat: {self.center[1]}, lng: {self.center[0]}, altitude: 2.5 }});")
 
         # ── payload declarations ──
         decls = []
