@@ -113,6 +113,46 @@ const layer = new FieldLayer(f.lons, f.lats, f.field, { cmap: 'thermal' });
 
 ---
 
+## Axes — composable overlays (matplotlib/cartopy-style)
+
+`to_html()` exports one field with one style. For layering — filled contours
+with isoline outlines on top, coastlines, several fields — use the `Axes` API:
+
+```python
+import pyterraplot as tp
+
+ax = tp.Axes(spin=False, earth_surface="none")
+ax.contourf(air, levels=14, cmap="viridis", vmin=-30, vmax=30)
+ax.contour(air, levels=14, color="black", linewidth=1.5)   # outline the patches
+ax.coastlines(color="#39FF14")
+ax.title("2m air temperature")
+ax.to_html("plot.html")
+```
+
+Layers render stacked in call order, and passing the same DataArray to several
+primitives embeds the payload only once. In Jupyter, an Axes displays inline
+(as its `_repr_html_`), so the last line is optional in a notebook.
+
+Primitives:
+
+| Method | Notes |
+|--------|-------|
+| `pcolormesh(da, cmap=, alpha=, vmin=, vmax=)` | smooth gradient fill |
+| `contourf(da, levels=, …)` | banded fill |
+| `contour(da, levels=, color= / cmap=, linewidth=, zorder=)` | unfilled isolines; `linewidth > 1` renders as fat lines |
+| `coastlines(color=, width=, opacity=)` / `borders(…)` | continental outlines |
+| `marker(lat, lon, label=)` | 2D projections only |
+| `quiver(u, v)` | vector arrows, 2D projections only |
+| `title(text)` | page + overlay label |
+| `colorbar(cmap=, vmin=, vmax=, label=)` | override the auto-derived colorbar |
+| `animate(da, dim="step", kind="contourf", interval=800)` | frame animation; static layers stay on top |
+
+Constructor options mirror `to_html()`: `globe=True` (default) or
+`globe=False, projection=…` for a 2D map, plus `center`, `extent`, `spin`,
+`earth_surface`, `background`, `height_px`.
+
+---
+
 ## API
 
 ### `.tp.to_dict(lon_dim?, lat_dim?, wrap_lon?)` → `dict`
