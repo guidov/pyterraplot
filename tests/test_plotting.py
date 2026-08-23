@@ -288,13 +288,22 @@ class TestToHtmlProjections:
     def test_coastlines_added_by_default(self, tmp_path):
         da  = make_da()
         out = da.tp.to_html(tmp_path / "cl.html", projection="mercator", binary=False)
-        assert "addFeature('coastlines')" in out.read_text()
+        assert "addFeature('coastlines'" in out.read_text()
 
     def test_coastlines_suppressed(self, tmp_path):
         da  = make_da()
         out = da.tp.to_html(tmp_path / "nocl.html", projection="mercator",
                             coastlines=False, binary=False)
-        assert "addFeature('coastlines')" not in out.read_text()
+        assert "addFeature('coastlines'" not in out.read_text()
+
+    def test_globe_coastlines_neon(self, tmp_path):
+        da  = make_da()
+        out = da.tp.to_html(tmp_path / "neon.html", binary=False,
+                            earth_surface="none", coastlines=True, spin=False)
+        html = out.read_text()
+        assert "earthSurface: 'none'" in html
+        assert "addFeature('coastlines', { color: '#39FF14'" in html
+        assert "autoRotate: false" in html
 
     def test_center_embedded_in_js(self, tmp_path):
         da  = make_da()

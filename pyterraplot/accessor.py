@@ -246,7 +246,7 @@ class TerraplotAccessor:
         vmax: float | None = None,
         levels: int = 12,
         projection: str | None = None,
-        coastlines: bool = True,
+        coastlines: bool | None = None,
         center: tuple[float, float] = (0, 0),
         extent: tuple[float, float, float, float] | None = None,
         binary: bool = True,
@@ -255,6 +255,9 @@ class TerraplotAccessor:
         wrap_lon: bool = True,
         terraplot_bundle: str | Path | None = None,
         earth_surface: str = "satellite",
+        spin: bool = True,
+        coastline_color: str = "#39FF14",
+        coastline_width: float = 2.0,
     ) -> Path:
         """
         Export a self-contained HTML file that renders the field.
@@ -277,7 +280,12 @@ class TerraplotAccessor:
                       'orthographic', 'naturalEarth', 'stereographic',
                       'azimuthalEqualArea', 'albers', 'lambertConformal',
                       'gnomonic'.
-        coastlines  : add coastlines overlay when using 2D projection (default True)
+        coastlines  : draw continental outlines (default True for 2D maps,
+                      False for the 3D globe — pass True for the neon-outline
+                      look over a plain globe).
+        coastline_color : stroke color for the coastlines (default neon green '#39FF14').
+        coastline_width : stroke width in pixels (default 2). Values > 1 render
+                      as proper thick lines; 1 gives a hairline.
         center      : (lon, lat) map centre for 2D projection (default (0, 0))
         extent      : (lon0, lon1, lat0, lat1) regional zoom, like cartopy set_extent.
                       Only used with 2D projection.
@@ -286,7 +294,15 @@ class TerraplotAccessor:
                       Requires DecompressionStream (Chrome 80+, Firefox 113+, Safari 16.4+).
         terraplot_bundle : path to terraplot dist/terraplot.js; auto-detected
                            if None (looks for sibling repo ../terraplot)
+        earth_surface : globe/map base style: 'satellite' (night-lights, default),
+                      'shaded_relief' | 'stock' (blue marble), 'outline' | 'none'
+                      (plain dark sphere — use with ``coastlines=True`` for the
+                      neon-outline look), or an image URL.
+        spin        : auto-rotate the 3D globe (default True). Ignored for 2D
+                      projections. The globe stays draggable/zoomable either way.
         """
+        if coastlines is None:
+            coastlines = projection is not None  # default: 2D yes, 3D no
         html = self._build_html(
             kind=kind, title=title, cmap=cmap, alpha=alpha,
             vmin=vmin, vmax=vmax, levels=levels,
@@ -294,7 +310,8 @@ class TerraplotAccessor:
             center=center, extent=extent, binary=binary,
             lon_dim=lon_dim, lat_dim=lat_dim, wrap_lon=wrap_lon,
             terraplot_bundle=terraplot_bundle,
-            earth_surface=earth_surface,
+            earth_surface=earth_surface, spin=spin,
+            coastline_color=coastline_color, coastline_width=coastline_width,
         )
         p = Path(path)
         p.write_text(html)
@@ -304,6 +321,7 @@ class TerraplotAccessor:
         self, *, kind, title, cmap, alpha, vmin, vmax, levels,
         projection, coastlines, center, extent, binary,
         lon_dim, lat_dim, wrap_lon, terraplot_bundle, earth_surface="satellite", height_px=None,
+        spin: bool = True, coastline_color: str = "#39FF14", coastline_width: float = 2.0,
     ) -> str:
         """Shared HTML builder used by to_html() and _repr_html_()."""
         if kind not in ("pcolormesh", "contourf", "contour"):
@@ -326,9 +344,14 @@ class TerraplotAccessor:
 
         if use_2d:
             map_init = _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
-                                         projection, coastlines, center, units, extent, earth_surface=earth_surface)
+                                         projection, coastlines, center, units, extent,
+                                         earth_surface=earth_surface, coastline_color=coastline_color,
+                                         coastline_width=coastline_width)
         else:
-            map_init = _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface=earth_surface)
+            map_init = _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels,
+                                            earth_surface=earth_surface, spin=spin,
+                                            coastlines=coastlines, coastline_color=coastline_color,
+                                            coastline_width=coastline_width)
 
         return _html_single(
             title=title, label=label, units=units,
@@ -353,7 +376,7 @@ class TerraplotAccessor:
         vmax: float | None = None,
         levels: int = 12,
         projection: str | None = None,
-        coastlines: bool = True,
+        coastlines: bool | None = None,
         center: tuple[float, float] = (0, 0),
         extent: tuple[float, float, float, float] | None = None,
         interval: int = 700,
@@ -362,6 +385,9 @@ class TerraplotAccessor:
         wrap_lon: bool = True,
         terraplot_bundle: str | Path | None = None,
         earth_surface: str = "satellite",
+        spin: bool = True,
+        coastline_color: str = "#39FF14",
+        coastline_width: float = 2.0,
     ) -> Path:
         """
         Export a self-contained animated HTML file.
@@ -377,8 +403,12 @@ class TerraplotAccessor:
         dim        : dimension to animate over (e.g. 'time', 'lead_time')
         kind       : 'pcolormesh' | 'contourf'
         projection : 2D map projection name, or None for 3D globe
-        coastlines : add coastlines in 2D mode (default True)
+        coastlines : draw continental outlines (default True for 2D, False for 3D)
+        coastline_color : stroke color for the coastlines (default '#39FF14')
+        coastline_width : stroke width in pixels (default 2)
+        earth_surface : 'satellite' | 'shaded_relief' | 'outline'/'none' | URL
         interval   : ms between frames (default 700)
+        spin       : auto-rotate the 3D globe (default True). Ignored for 2D.
         """
         if kind not in ("pcolormesh", "contourf", "contour"):
             raise ValueError(f"kind must be 'pcolormesh', 'contourf', or 'contour', got {kind!r}")
@@ -391,6 +421,8 @@ class TerraplotAccessor:
         label     = f"{long_name} [{units}]" if units else long_name
 
         bundle_js = _load_terraplot_bundle(terraplot_bundle)
+        if coastlines is None:
+            coastlines = projection is not None  # default: 2D yes, 3D no
         use_2d    = projection is not None
         levels_js = _js_levels(levels, kind)
         center_js = f"[{center[0]}, {center[1]}]"
@@ -400,9 +432,11 @@ class TerraplotAccessor:
         map_ctor = (
             f"new GeoMap('#map', {{ projection: '{projection}', center: {center_js}{extent_js}, background: 'transparent', earthSurface: '{earth_surface}', tooltip: true }})"
             if use_2d else
-            f"new GeoSphere('#map', {{ earthSurface: '{earth_surface}' }})"
+            f"new GeoSphere('#map', {{ earthSurface: '{earth_surface}', autoRotate: {str(spin).lower()} }})"
         )
-        coastlines_line = "map.addFeature('coastlines');" if (use_2d and coastlines) else ""
+        coastlines_line = (
+            f"map.addFeature('coastlines', {{ color: '{coastline_color}', opacity: 0.9, linewidth: {coastline_width} }});"
+            if coastlines else "")
 
         html = _html_animation(
             title=title, label=label, units=units, n_frames=n_frames,
@@ -436,11 +470,16 @@ def _js_levels(levels, kind) -> str:
     return json.dumps(val)
 
 
-def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface) -> str:
+def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface,
+                         spin=True, coastlines=False,
+                         coastline_color="#39FF14", coastline_width=2.0) -> str:
     """JS snippet that creates a GeoSphere and plots a field."""
     levels_js = _js_levels(levels, kind)
+    coastlines_js = (
+        f"map.addFeature('coastlines', {{ color: '{coastline_color}', opacity: 0.9, linewidth: {coastline_width} }});"
+        if coastlines else "")
     return f"""
-const map = new GeoSphere('#map', {{ earthSurface: '{earth_surface}' }});
+const map = new GeoSphere('#map', {{ earthSurface: '{earth_surface}', autoRotate: {str(spin).lower()} }});
 const opts = {{
   cmap:   '{cmap}',
   alpha:  {alpha},
@@ -449,18 +488,22 @@ const opts = {{
   levels: {levels_js},
 }};
 map.{kind}(payload.lons, payload.lats, payload.field, opts);
+{coastlines_js}
 """
 
 
 def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
                       projection, coastlines, center, units,
-                      extent=None, earth_surface="satellite") -> str:
+                      extent=None, earth_surface="satellite",
+                      coastline_color="#39FF14", coastline_width=2.0) -> str:
     """JS snippet that creates a GeoMap (2D projection) and plots a field."""
     levels_js = _js_levels(levels, kind)
     center_js = f"[{center[0]}, {center[1]}]"
     extent_js = (f", extent: [{extent[0]}, {extent[1]}, {extent[2]}, {extent[3]}]"
                  if extent else "")
-    coastlines_js = "map.addFeature('coastlines');" if coastlines else ""
+    coastlines_js = (
+        f"map.addFeature('coastlines', {{ color: '{coastline_color}', opacity: 0.9, linewidth: {coastline_width} }});"
+        if coastlines else "")
     return f"""
 const map = new GeoMap('#map', {{
   projection: '{projection}',

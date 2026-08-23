@@ -50,18 +50,21 @@ MAGIC_FRAMES = 0x46_4C_50_54   # "TPLF" as little-endian uint32
 VERSION      = 1
 
 
-def pack_field(payload: dict[str, Any]) -> str:
+def pack_field(payload: dict[str, Any], *, binary: bool = False) -> str | bytes:
     """
-    Compress a single terraplot payload to base64-encoded gzip binary.
+    Compress a single terraplot payload to gzip binary.
 
     Parameters
     ----------
     payload : dict with keys lons, lats, field, name, units, long_name
               (the output of pyterraplot.serialize.serialize())
+    binary : when True, return raw gzip bytes instead of base64 ASCII —
+              ~25% smaller over the wire and skips the browser atob() pass.
 
     Returns
     -------
-    ASCII base64 string for inline embedding in HTML/JS.
+    ASCII base64 string for inline embedding in HTML/JS, or raw gzip
+    bytes when binary=True.
     """
     lons = np.asarray(payload["lons"], dtype="<f4")
     lats = np.asarray(payload["lats"], dtype="<f4")
@@ -83,22 +86,24 @@ def pack_field(payload: dict[str, Any]) -> str:
         + struct.pack("<I", len(meta))
         + meta
     )
-    return _compress_b64(raw)
+    return _compress(raw, binary=binary)
 
 
-def pack_frames(compact: dict[str, Any]) -> str:
+def pack_frames(compact: dict[str, Any], *, binary: bool = False) -> str | bytes:
     """
-    Compress a frames_compact payload to base64-encoded gzip binary.
+    Compress a frames_compact payload to gzip binary.
 
     Parameters
     ----------
     compact : dict produced by pyterraplot accessor .frames_compact()
               { lons, lats, name, units, long_name,
                 frames: [{ field, coord_value, frame }, ...] }
+    binary : when True, return raw gzip bytes instead of base64 ASCII.
 
     Returns
     -------
-    ASCII base64 string for inline embedding in HTML/JS.
+    ASCII base64 string for inline embedding in HTML/JS, or raw gzip
+    bytes when binary=True.
     """
     lons = np.asarray(compact["lons"], dtype="<f4")
     lats = np.asarray(compact["lats"], dtype="<f4")
@@ -134,7 +139,7 @@ def pack_frames(compact: dict[str, Any]) -> str:
         + struct.pack("<I", len(meta))
         + meta
     )
-    return _compress_b64(raw)
+    return _compress(raw, binary=binary)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -151,6 +156,13 @@ def _to_float32(field: Any, nlat: int, nlon: int) -> np.ndarray:
     return arr
 
 
-def _compress_b64(raw: bytes) -> str:
+def _compress(raw: bytes, *, binary: bool = False) -> str | bytes:
+    gz = gzip.compress(raw, compresslevel=6)
+    if binary:
+        return gz
     import base64
-    return base64.b64encode(gzip.compress(raw, compresslevel=6)).decode("ascii")
+    return base64.b64encode(gz).decode("ascii")
+
+
+def _compress_b64(raw: bytes) -> str:
+    return _compress(raw)  # type: ignore[return-value]
