@@ -7,16 +7,17 @@ For wider operations than DataArray.tp:
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import xarray as xr
 
 from .serialize import serialize
 from .binary import pack_field
-from .accessor import _load_terraplot_bundle, _SHARED_CSS, _IMPORTMAP, _js
+from .accessor import (
+    _COLORBAR_JS, _IMPORTMAP, _SHARED_CSS, _cbar_opts_js,
+    _load_terraplot_bundle, _js,
+)
 
 
 @xr.register_dataset_accessor("tp")
@@ -72,6 +73,7 @@ class TerraplotDatasetAccessor:
         center: tuple[float, float] = (0, 0),
         extent: tuple[float, float, float, float] | None = None,
         terraplot_bundle: str | Path | None = None,
+        cbar_opts: dict | None = None,
         lon_dim: str | None = None,
         lat_dim: str | None = None,
         wrap_lon: bool = True,
@@ -90,6 +92,8 @@ class TerraplotDatasetAccessor:
         quiver_density : subsample factor (1 = every grid point); auto if None
         quiver_scale   : pixels per max-magnitude arrow
         projection     : 2-D projection (defaults to equirectangular)
+        cbar_opts      : Colorbar widget options (orientation, position, scale,
+                         ticks, ...); only used when `background` is given
 
         See `da.tp.to_html` for descriptions of the colour-field params.
         """
@@ -131,14 +135,18 @@ map.pcolormesh(bg.lons, bg.lats, bg.field, {{
 }});
 """
 
-        cbar_block = ""
+        # Colorbar for the background field, using the same widget the
+        # DataArray exports drive. `bg` is declared by bg_init just above.
+        cbar_div = ""
+        colorbar_js = ""
         if bg_b64 is not None:
-            cbar_block = f"""
-<div id="colorbar"></div>
-<script type="module">
-import {{ Colorbar }} from 'data:text/javascript;base64,';
-</script>
-"""
+            cbar_div = '<div id="colorbar"></div>'
+            colorbar_js = (
+                _COLORBAR_JS
+                .replace("})(payload.field,", "})(bg.field,", 1)
+                .replace("CBAR_OPTS",
+                         _cbar_opts_js(cbar_opts or {}, cmap, vmin, vmax, label))
+            )
 
         quiver_opts = (
             f"density: {quiver_density if quiver_density is not None else 'null'}, "
@@ -160,6 +168,7 @@ import {{ Colorbar }} from 'data:text/javascript;base64,';
 <body>
 <div id="map"></div>
 <div id="label">{label}</div>
+{cbar_div}
 {_IMPORTMAP}
 <script type="module">
 {bundle_js}
@@ -176,6 +185,7 @@ const map = new GeoMap('#map', {{
 const uData = await unpackField("{u_b64}");
 const vData = await unpackField("{v_b64}");
 map.quiver(uData.lons, uData.lats, uData.field, vData.field, {{ {quiver_opts} }});
+{colorbar_js}
 </script>
 </body>
 </html>"""

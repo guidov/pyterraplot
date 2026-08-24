@@ -601,6 +601,26 @@ map.{kind}(payload.lons, payload.lats, payload.field, opts);
 """
 
 
+# Every exported HTML file embeds the whole terraplot bundle, which carries
+# third-party code under permissive licences. Those licences require the
+# notices to travel with the distributed copy, so the banner goes into the
+# generated page rather than living only in this repository.
+_LICENSE_BANNER = """\
+/*!
+ * Bundled third-party code, embedded by pyterraplot.
+ *
+ * terraplot — MIT License — https://github.com/guidov/terraplot
+ * d3-geo, d3-geo-projection, d3-contour, d3-scale-chromatic, d3-array
+ *   — ISC License — Copyright Mike Bostock — https://d3js.org
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ * Full licence texts: https://github.com/d3/d3-geo/blob/main/LICENSE
+ */
+"""
+
+
 def _load_terraplot_bundle(bundle_path: str | Path | None) -> str:
     """
     Read the terraplot ESM bundle and transform it for inline use:
@@ -626,7 +646,7 @@ def _load_terraplot_bundle(bundle_path: str | Path | None) -> str:
             "or set the TERRAPLOT_BUNDLE environment variable."
         )
 
-    js = Path(bundle_path).read_text()
+    js = _LICENSE_BANNER + Path(bundle_path).read_text()
 
     # Find the export block at the end: export { a as B, c as D, ... };
     m = re.search(r'export\s*\{([^}]+)\}\s*;?\s*$', js, re.DOTALL)

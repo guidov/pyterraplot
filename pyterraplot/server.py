@@ -10,6 +10,8 @@ import webbrowser
 from typing import Any
 from pathlib import Path
 
+import xarray as xr
+
 
 def serve(
     payload: dict[str, Any],
@@ -89,13 +91,13 @@ def start_viewer(
     """
     try:
         import uvicorn
-        import xarray as xr
         from fastapi import FastAPI
         from fastapi.middleware.cors import CORSMiddleware
         from fastapi.responses import HTMLResponse, JSONResponse
     except ImportError as e:
         raise ImportError(
-            "xarray, fastapi, and uvicorn are required for the viewer."
+            "fastapi and uvicorn are required for the viewer — "
+            "install with: pip install 'pyterraplot[serve]'"
         ) from e
 
     # Handle dataset or file path
@@ -111,7 +113,7 @@ def start_viewer(
         "filename_title": filename_title
     }
 
-    app = FastAPI(title=f"pyterraplot NetCDF Viewer")
+    app = FastAPI(title="pyterraplot NetCDF Viewer")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

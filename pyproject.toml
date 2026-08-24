@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyterraplot"
-version = "0.3.0"
-description = "xarray accessor + server bridge for the terraplot JS globe visualization library"
+version = "0.4.0"
+description = "matplotlib + cartopy plotting for xarray, rendered by terraplot in the browser"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Guido Vettoretti" }]
-keywords = ["xarray", "climate", "weather", "s2s", "visualization", "globe", "cartopy"]
+keywords = ["xarray", "climate", "weather", "s2s", "visualization", "globe",
+            "cartopy", "matplotlib", "cartography", "map-projections"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
