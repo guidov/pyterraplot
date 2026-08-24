@@ -660,8 +660,9 @@ _SHARED_CSS = """
     background: rgba(0,0,0,.6); padding: .35rem .9rem; border-radius: 6px;
     font-size: .82rem; white-space: nowrap; pointer-events: none;
     border: 1px solid rgba(255,255,255,.12);
+    z-index: 100;
   }
-  #colorbar { /* positioned & styled by the Colorbar widget itself */ }
+  #colorbar, .tp-colorbar { z-index: 100; }
 """
 
 _IMPORTMAP = """\
