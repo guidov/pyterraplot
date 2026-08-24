@@ -121,7 +121,16 @@ class Axes:
         return self
 
     def colorbar(self, **opts) -> "Axes":
-        """Override the auto colorbar: cmap, vmin, vmax, label."""
+        """Configure the colorbar: any Colorbar widget option —
+        orientation ('horizontal'|'vertical'), position ('bottom'|'top'|
+        'left'|'right'), panel (translucent backing), background, ticks
+        (count or explicit values), format, scale ('linear'|'log'|'symlog'|
+        'power'|'sqrt'), power, linthresh, width, height, label, cmap,
+        vmin, vmax.  Example (precipitation):
+            ax.colorbar(orientation='vertical', position='right',
+                        scale='symlog', linthresh=1,
+                        ticks=[0, 1, 5, 10, 25, 50, 100])
+        """
         self._cbar_opts = opts
         return self
 
@@ -248,25 +257,20 @@ class Axes:
             title = self._title
             label = f"{title} — {label}" if label else title
 
-        # ── colorbar ──
-        cbar = self._cbar_opts or {}
-        cbar_src = dict(cbar)
+        # ── colorbar ── (terraplot Colorbar widget, fully configurable)
+        cbar_src = dict(self._cbar_opts or {})
         if first_field_opts:
             cbar_src.setdefault("cmap", first_field_opts.get("cmap", "viridis"))
             cbar_src.setdefault("vmin", first_field_opts.get("vmin"))
             cbar_src.setdefault("vmax", first_field_opts.get("vmax"))
+        if label and "label" not in cbar_src:
+            cbar_src["label"] = label
         cvar = next(iter(self._payloads.values()), None)
         colorbar_js = (
             _COLORBAR_JS
-            .replace("'cbar'", "'cbar'")
-            .replace("CMAP", json.dumps(cbar_src.get("cmap", "viridis")))
-            .replace("VMIN", json.dumps(cbar_src.get("vmin")))
-            .replace("VMAX", json.dumps(cbar_src.get("vmax")))
-        )
-        # _COLORBAR_JS takes the field array; pass the first payload's
-        colorbar_js = colorbar_js.replace(
-            "})(payload.field,",
-            f"}})({cvar['var']}.field," if cvar else "})([],",
+            .replace("})(payload.field,",
+                     f"}})({cvar['var']}.field," if cvar else "})([],", 1)
+            .replace("CBAR_OPTS", json.dumps(cbar_src))
         )
 
         map_height = f"{height_px or self.height_px}px" if (height_px or self.height_px) else "100vh"
@@ -280,18 +284,12 @@ class Axes:
 <style>
 {_SHARED_CSS}
   #map {{ width: 100vw; height: {map_height}; }}
-  #cbar {{ width: 220px; height: 12px; border-radius: 3px;
-           border: 1px solid rgba(255,255,255,.18); }}
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="label">{label}</div>
-<div id="colorbar">
-  <canvas id="cbar" width="220" height="12"></canvas>
-  <div id="cbar-ticks"></div>
-  <div id="cbar-units">{cbar_src.get('label', '')}</div>
-</div>
+<div id="colorbar"></div>
 {_IMPORTMAP}
 <script type="module">
 {bundle_js}

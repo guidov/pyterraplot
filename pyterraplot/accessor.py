@@ -247,6 +247,8 @@ class TerraplotAccessor:
         levels: int = 12,
         projection: str | None = None,
         coastlines: bool | None = None,
+        coastline_color: str = "#39FF14",
+        coastline_width: float = 2.0,
         center: tuple[float, float] = (0, 0),
         extent: tuple[float, float, float, float] | None = None,
         binary: bool = True,
@@ -256,8 +258,12 @@ class TerraplotAccessor:
         terraplot_bundle: str | Path | None = None,
         earth_surface: str = "satellite",
         spin: bool = True,
-        coastline_color: str = "#39FF14",
-        coastline_width: float = 2.0,
+        colorbar: dict | None = None,
+        borders: bool = False,
+        borders_color: str = "#000000",
+        borders_width: float = 0.8,
+        cities: bool = False,
+        cities_color: str = "#ffffff",
     ) -> Path:
         """
         Export a self-contained HTML file that renders the field.
@@ -300,6 +306,16 @@ class TerraplotAccessor:
                       neon-outline look), or an image URL.
         spin        : auto-rotate the 3D globe (default True). Ignored for 2D
                       projections. The globe stays draggable/zoomable either way.
+        colorbar    : dict of Colorbar widget options — orientation
+                      ('horizontal'|'vertical'), position ('bottom'|'top'|
+                      'left'|'right'), panel, background, ticks (count or
+                      values), format, scale ('linear'|'log'|'symlog'|'power'|
+                      'sqrt'), power, linthresh, width, height, label.
+        borders     : draw political country borders (default False).
+        borders_color : stroke color for country borders (default '#000000').
+        borders_width : stroke width in pixels for country borders (default 0.8).
+        cities      : draw city markers and labels (default False).
+        cities_color : text color for city labels (default '#ffffff').
         """
         if coastlines is None:
             coastlines = projection is not None  # default: 2D yes, 3D no
@@ -312,6 +328,9 @@ class TerraplotAccessor:
             terraplot_bundle=terraplot_bundle,
             earth_surface=earth_surface, spin=spin,
             coastline_color=coastline_color, coastline_width=coastline_width,
+            cbar_opts=colorbar,
+            borders=borders, borders_color=borders_color, borders_width=borders_width,
+            cities=cities, cities_color=cities_color,
         )
         p = Path(path)
         p.write_text(html)
@@ -322,6 +341,9 @@ class TerraplotAccessor:
         projection, coastlines, center, extent, binary,
         lon_dim, lat_dim, wrap_lon, terraplot_bundle, earth_surface="satellite", height_px=None,
         spin: bool = True, coastline_color: str = "#39FF14", coastline_width: float = 2.0,
+        cbar_opts: dict | None = None,
+        borders: bool = False, borders_color: str = "#000000", borders_width: float = 0.8,
+        cities: bool = False, cities_color: str = "#ffffff",
     ) -> str:
         """Shared HTML builder used by to_html() and _repr_html_()."""
         if kind not in ("pcolormesh", "contourf", "contour"):
@@ -346,12 +368,16 @@ class TerraplotAccessor:
             map_init = _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
                                          projection, coastlines, center, units, extent,
                                          earth_surface=earth_surface, coastline_color=coastline_color,
-                                         coastline_width=coastline_width)
+                                         coastline_width=coastline_width,
+                                         borders=borders, borders_color=borders_color, borders_width=borders_width,
+                                         cities=cities, cities_color=cities_color)
         else:
             map_init = _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels,
                                             earth_surface=earth_surface, spin=spin,
                                             coastlines=coastlines, coastline_color=coastline_color,
-                                            coastline_width=coastline_width)
+                                            coastline_width=coastline_width,
+                                            borders=borders, borders_color=borders_color, borders_width=borders_width,
+                                            cities=cities, cities_color=cities_color)
 
         return _html_single(
             title=title, label=label, units=units,
@@ -359,6 +385,7 @@ class TerraplotAccessor:
             payload_js=payload_js, map_init=map_init,
             cmap=cmap, vmin=vmin, vmax=vmax,
             height_px=height_px,
+            cbar_opts=cbar_opts,
         )
 
     # ── Animation HTML export ─────────────────────────────────────────────────
@@ -388,6 +415,12 @@ class TerraplotAccessor:
         spin: bool = True,
         coastline_color: str = "#39FF14",
         coastline_width: float = 2.0,
+        colorbar: dict | None = None,
+        borders: bool = False,
+        borders_color: str = "#000000",
+        borders_width: float = 0.8,
+        cities: bool = False,
+        cities_color: str = "#ffffff",
     ) -> Path:
         """
         Export a self-contained animated HTML file.
@@ -409,6 +442,13 @@ class TerraplotAccessor:
         earth_surface : 'satellite' | 'shaded_relief' | 'outline'/'none' | URL
         interval   : ms between frames (default 700)
         spin       : auto-rotate the 3D globe (default True). Ignored for 2D.
+        colorbar   : dict of Colorbar widget options (orientation, position,
+                     panel, ticks, format, scale, …) — see to_html.
+        borders     : draw political country borders (default False).
+        borders_color : stroke color for country borders (default '#000000').
+        borders_width : stroke width in pixels for country borders (default 0.8).
+        cities      : draw city markers and labels (default False).
+        cities_color : text color for city labels (default '#ffffff').
         """
         if kind not in ("pcolormesh", "contourf", "contour"):
             raise ValueError(f"kind must be 'pcolormesh', 'contourf', or 'contour', got {kind!r}")
@@ -434,9 +474,13 @@ class TerraplotAccessor:
             if use_2d else
             f"new GeoSphere('#map', {{ earthSurface: '{earth_surface}', autoRotate: {str(spin).lower()} }})"
         )
-        coastlines_line = (
-            f"map.addFeature('coastlines', {{ color: '{coastline_color}', opacity: 0.9, linewidth: {coastline_width} }});"
-            if coastlines else "")
+        features_js = ""
+        if coastlines:
+            features_js += f"map.addFeature('coastlines', {{ color: '{coastline_color}', opacity: 0.9, linewidth: {coastline_width} }});\n"
+        if borders:
+            features_js += f"map.addFeature('borders', {{ color: '{borders_color}', opacity: 0.8, linewidth: {borders_width} }});\n"
+        if cities:
+            features_js += f"map.addFeature('cities', {{ color: '{cities_color}', opacity: 0.9 }});\n"
 
         html = _html_animation(
             title=title, label=label, units=units, n_frames=n_frames,
@@ -444,11 +488,21 @@ class TerraplotAccessor:
             kind=kind, cmap=cmap, alpha=alpha,
             vmin=vmin, vmax=vmax, levels_js=levels_js,
             interval=interval, map_ctor=map_ctor,
-            coastlines_line=coastlines_line,
+            coastlines_line=features_js,
+            cbar_opts=_animation_cbar_opts(cmap, vmin, vmax, label, colorbar),
         )
         p = Path(path)
         p.write_text(html)
         return p
+
+
+def _animation_cbar_opts(cmap, vmin, vmax, label, overrides=None):
+    import json as _json
+    opts = {
+        "cmap": cmap, "vmin": vmin, "vmax": vmax, "label": label, "ticks": 5,
+        **{k: v for k, v in (overrides or {}).items() if v is not None},
+    }
+    return _json.dumps(opts)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -472,12 +526,20 @@ def _js_levels(levels, kind) -> str:
 
 def _render_geosphere_js(kind, cmap, alpha, vmin, vmax, levels, earth_surface,
                          spin=True, coastlines=False, center=(0, 0),
-                         coastline_color="#39FF14", coastline_width=2.0) -> str:
+                         coastline_color="#39FF14", coastline_width=2.0,
+                         borders=False, borders_color="#000000", borders_width=0.8,
+                         cities=False, cities_color="#ffffff") -> str:
     """JS snippet that creates a GeoSphere and plots a field."""
     levels_js = _js_levels(levels, kind)
     coastlines_js = (
         f"map.addFeature('coastlines', {{ color: '{coastline_color}', opacity: 0.9, linewidth: {coastline_width} }});"
         if coastlines else "")
+    borders_js = (
+        f"map.addFeature('borders', {{ color: '{borders_color}', opacity: 0.8, linewidth: {borders_width} }});"
+        if borders else "")
+    cities_js = (
+        f"map.addFeature('cities', {{ color: '{cities_color}', opacity: 0.9 }});"
+        if cities else "")
     return f"""
 const map = new GeoSphere('#map', {{ earthSurface: '{earth_surface}', autoRotate: {str(spin).lower()} }});
 map.setPointOfView({{ lat: {center[1]}, lng: {center[0]}, altitude: 2.5 }});
@@ -490,13 +552,17 @@ const opts = {{
 }};
 map.{kind}(payload.lons, payload.lats, payload.field, opts);
 {coastlines_js}
+{borders_js}
+{cities_js}
 """
 
 
 def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
                       projection, coastlines, center, units,
                       extent=None, earth_surface="satellite",
-                      coastline_color="#39FF14", coastline_width=2.0) -> str:
+                      coastline_color="#39FF14", coastline_width=2.0,
+                      borders=False, borders_color="#000000", borders_width=0.8,
+                      cities=False, cities_color="#ffffff") -> str:
     """JS snippet that creates a GeoMap (2D projection) and plots a field."""
     levels_js = _js_levels(levels, kind)
     center_js = f"[{center[0]}, {center[1]}]"
@@ -505,6 +571,12 @@ def _render_geomap_js(kind, cmap, alpha, vmin, vmax, levels,
     coastlines_js = (
         f"map.addFeature('coastlines', {{ color: '{coastline_color}', opacity: 0.9, linewidth: {coastline_width} }});"
         if coastlines else "")
+    borders_js = (
+        f"map.addFeature('borders', {{ color: '{borders_color}', opacity: 0.8, linewidth: {borders_width} }});"
+        if borders else "")
+    cities_js = (
+        f"map.addFeature('cities', {{ color: '{cities_color}', opacity: 0.9 }});"
+        if cities else "")
     return f"""
 const map = new GeoMap('#map', {{
   projection: '{projection}',
@@ -524,6 +596,8 @@ const opts = {{
 }};
 map.{kind}(payload.lons, payload.lats, payload.field, opts);
 {coastlines_js}
+{borders_js}
+{cities_js}
 """
 
 
@@ -580,23 +654,14 @@ def _load_terraplot_bundle(bundle_path: str | Path | None) -> str:
 _SHARED_CSS = """
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #090912; color: #e0e0e0; font-family: system-ui, sans-serif; }
-  #map { width: 100vw; height: 100vh; }
+  #map { width: 100vw; height: 100vh; position: relative; }
   #label {
     position: fixed; top: .8rem; left: 50%; transform: translateX(-50%);
     background: rgba(0,0,0,.6); padding: .35rem .9rem; border-radius: 6px;
     font-size: .82rem; white-space: nowrap; pointer-events: none;
     border: 1px solid rgba(255,255,255,.12);
   }
-  #colorbar {
-    position: fixed; bottom: 1.4rem; left: 50%; transform: translateX(-50%);
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    pointer-events: none; min-width: 220px;
-  }
-  #cbar-ticks {
-    width: 220px; display: flex; justify-content: space-between;
-    font-size: .7rem; color: #cbd5e1;
-  }
-  #cbar-units { font-size: .68rem; color: #94a3b8; letter-spacing: .03em; }
+  #colorbar { /* positioned & styled by the Colorbar widget itself */ }
 """
 
 _IMPORTMAP = """\
@@ -608,9 +673,9 @@ _IMPORTMAP = """\
 </script>"""
 
 _COLORBAR_JS = """\
-// ── Colorbar ──────────────────────────────────────────────────────────────
-(function drawColorbar(field, cmap, vmin, vmax) {
-  let lo = vmin, hi = vmax;
+// ── Colorbar (terraplot widget — orientation/panel/scale configurable) ────
+(function drawColorbar(field, cbarOpts) {
+  let lo = cbarOpts.vmin, hi = cbarOpts.vmax;
   if (lo == null || hi == null) {
     lo = Infinity; hi = -Infinity;
     // Handle both flat TypedArray (binary mode) and nested 2D array (JSON mode)
@@ -618,36 +683,38 @@ _COLORBAR_JS = """\
     for (const v of iterable) {
       if (v != null && isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
     }
+    cbarOpts.vmin = lo; cbarOpts.vmax = hi;
   }
-  const colorFn = resolveColormap(cmap);
-  const canvas  = document.getElementById('cbar');
-  const ctx     = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  for (let x = 0; x < W; x++) {
-    const [r, g, b] = colorFn(x / (W - 1));
-    ctx.fillStyle = `rgb(${r},${g},${b})`;
-    ctx.fillRect(x, 0, 1, H);
-  }
-  const ticks = document.getElementById('cbar-ticks');
-  for (let i = 0; i < 5; i++) {
-    const v = lo + (i / 4) * (hi - lo);
-    const span = document.createElement('span');
-    span.textContent = v.toFixed(Math.abs(hi - lo) < 2 ? 2 : 1);
-    ticks.appendChild(span);
-  }
-})(payload.field, CMAP, VMIN, VMAX);"""
+  const host = document.getElementById('colorbar');
+  host.replaceChildren();
+  new Colorbar(host, cbarOpts);
+})(payload.field, CBAR_OPTS);"""
+
+
+def _cbar_opts_js(cbar_opts: dict, cmap: str, vmin, vmax, label: str) -> str:
+    """Serialize the widget options for the HTML template's CBAR_OPTS slot.
+    Values explicitly given win; sensible defaults fill the rest."""
+    import json as _json
+    opts = {
+        "cmap": cmap,
+        "vmin": vmin,
+        "vmax": vmax,
+        "label": label,
+        "ticks": 5,
+        **{k: v for k, v in cbar_opts.items() if v is not None},
+    }
+    return _json.dumps(opts)
 
 
 def _html_single(*, title, label, units, cbar_id, bundle_js, payload_js,
-                 map_init, cmap, vmin, vmax, height_px=None) -> str:
+                 map_init, cmap, vmin, vmax, height_px=None,
+                 cbar_opts=None) -> str:
     colorbar_js = (
         _COLORBAR_JS
-        .replace("'cbar'", f"'{cbar_id}'")
-        .replace("CMAP", f"'{cmap}'")
-        .replace("VMIN", _js(vmin))
-        .replace("VMAX", _js(vmax))
+        .replace("CBAR_OPTS", _cbar_opts_js(cbar_opts or {}, cmap, vmin, vmax, label))
     )
     map_height = f"{height_px}px" if height_px else "100vh"
+    vertical = (cbar_opts or {}).get("orientation") == "vertical"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -657,18 +724,12 @@ def _html_single(*, title, label, units, cbar_id, bundle_js, payload_js,
 <style>
 {_SHARED_CSS}
   #map {{ width: 100vw; height: {map_height}; }}
-  #cbar {{ width: 220px; height: 12px; border-radius: 3px;
-           border: 1px solid rgba(255,255,255,.18); }}
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="label">{label}</div>
-<div id="colorbar">
-  <canvas id="{cbar_id}" width="220" height="12"></canvas>
-  <div id="cbar-ticks"></div>
-  <div id="cbar-units">{units}</div>
-</div>
+<div id="colorbar"></div>
 {_IMPORTMAP}
 <script type="module">
 {bundle_js}
@@ -683,7 +744,7 @@ const payload = {payload_js};
 
 def _html_animation(*, title, label, units, n_frames, bundle_js, b64,
                     kind, cmap, alpha, vmin, vmax, levels_js, interval,
-                    map_ctor, coastlines_line) -> str:
+                    map_ctor, coastlines_line, cbar_opts=None) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -692,8 +753,7 @@ def _html_animation(*, title, label, units, n_frames, bundle_js, b64,
 <title>{title}</title>
 <style>
 {_SHARED_CSS}
-  #cbar {{ width: 220px; height: 12px; border-radius: 3px;
-           border: 1px solid rgba(255,255,255,.18); }}
+  #cbar {{ /* styled by the Colorbar widget */ }}
   #controls {{
     position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
     display: flex; align-items: center; gap: .6rem;
@@ -717,11 +777,7 @@ def _html_animation(*, title, label, units, n_frames, bundle_js, b64,
 <body>
 <div id="map"></div>
 <div id="label">{label}</div>
-<div id="colorbar">
-  <canvas id="cbar" width="220" height="12"></canvas>
-  <div id="cbar-ticks"></div>
-  <div id="cbar-units">{units}</div>
-</div>
+<div id="colorbar"></div>
 <div id="controls">
   <button id="play-btn">⏸ Pause</button>
   <input id="scrubber" type="range" min="0" max="{n_frames - 1}" value="0" step="1"/>
@@ -732,6 +788,18 @@ def _html_animation(*, title, label, units, n_frames, bundle_js, b64,
 {bundle_js}
 
 const data = await unpackFrames("{b64}");
+
+// Colorbar (terraplot widget)
+(() => {{
+  const o = {cbar_opts};
+  if (o.vmin == null || o.vmax == null) {{
+    let lo = Infinity, hi = -Infinity;
+    for (const fr of data.frames) for (const v of fr.field)
+      if (isFinite(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
+    o.vmin = lo; o.vmax = hi;
+  }}
+  new Colorbar(document.getElementById('colorbar'), o);
+}})();
 
 const map = {map_ctor};
 {coastlines_line}
@@ -775,40 +843,7 @@ playBtn.addEventListener('click', () => {{
   }}
 }});
 
-// ── Colorbar ──────────────────────────────────────────────────────────────
-(function drawColorbar() {{
-  // Scan first frame's field for min/max
-  const field = data.frames[0].field;
-  let lo = {_js(vmin)}, hi = {_js(vmax)};
-  if (lo == null || hi == null) {{
-    lo = Infinity; hi = -Infinity;
-    for (const v of field) {{
-      if (isFinite(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
-    }}
-    // Also scan remaining frames to get global range
-    for (const fr of data.frames) {{
-      for (const v of fr.field) {{
-        if (isFinite(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
-      }}
-    }}
-  }}
-  const colorFn = resolveColormap('{cmap}');
-  const canvas  = document.getElementById('cbar');
-  const ctx     = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  for (let x = 0; x < W; x++) {{
-    const [r, g, b] = colorFn(x / (W - 1));
-    ctx.fillStyle = `rgb(${{r}},${{g}},${{b}})`;
-    ctx.fillRect(x, 0, 1, H);
-  }}
-  const ticks = document.getElementById('cbar-ticks');
-  for (let i = 0; i < 5; i++) {{
-    const v = lo + (i / 4) * (hi - lo);
-    const span = document.createElement('span');
-    span.textContent = v.toFixed(Math.abs(hi - lo) < 2 ? 2 : 1);
-    ticks.appendChild(span);
-  }}
-}})();
+// ── Colorbar (handled above via the widget) ───────────────────────────────
 </script>
 </body>
 </html>"""

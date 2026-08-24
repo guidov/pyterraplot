@@ -422,8 +422,8 @@ class TestFramesToHtml:
         da  = make_time_da()
         out = da.tp.frames_to_html(tmp_path / "anim.html", dim="time")
         content = out.read_text()
-        assert "drawColorbar" in content
-        assert "cbar-ticks" in content
+        assert "new Colorbar" in content
+        assert "getelementbyid('colorbar')" in content.lower()
 
     def test_extent_in_animation(self, tmp_path):
         da  = make_time_da()
