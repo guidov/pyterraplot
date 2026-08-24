@@ -108,6 +108,11 @@ class Axes:
         self._calls.append(("feature", "borders", dict(color=color, linewidth=width, opacity=opacity)))
         return self
 
+    def cities(self, color: str = "#ffffff", opacity: float = 0.9) -> "Axes":
+        """Add major cities and populated places with text labels."""
+        self._calls.append(("feature", "cities", dict(color=color, opacity=opacity)))
+        return self
+
     def marker(self, lat: float, lon: float, label: str | None = None,
                color: str = "#fbbf24", size: float = 5) -> "Axes":
         """Point marker (2D projections only)."""
@@ -120,18 +125,43 @@ class Axes:
         self._title = text
         return self
 
-    def colorbar(self, **opts) -> "Axes":
-        """Configure the colorbar: any Colorbar widget option —
-        orientation ('horizontal'|'vertical'), position ('bottom'|'top'|
-        'left'|'right'), panel (translucent backing), background, ticks
-        (count or explicit values), format, scale ('linear'|'log'|'symlog'|
-        'power'|'sqrt'), power, linthresh, width, height, label, cmap,
-        vmin, vmax.  Example (precipitation):
-            ax.colorbar(orientation='vertical', position='right',
-                        scale='symlog', linthresh=1,
-                        ticks=[0, 1, 5, 10, 25, 50, 100])
+    def colorbar(self, da: xr.DataArray | None = None, **opts) -> "Axes":
+        """Add a colorbar primitive to the axes.
+
+        Parameters
+        ----------
+        da : optional DataArray whose field values and metadata (cmap, vmin, vmax,
+             units, long_name) provide defaults for the colorbar. If omitted,
+             inherits from the preceding or first plotted field layer.
+        **opts : Colorbar widget options:
+            orientation : 'horizontal' | 'vertical' (default 'horizontal')
+            position    : 'bottom' | 'top' | 'left' | 'right' (default 'bottom')
+            panel       : bool (default True, translucent backing)
+            background  : str (default 'rgba(0,0,0,0.65)')
+            scale       : 'linear' | 'log' | 'symlog' | 'power' | 'sqrt'
+            power       : float (exponent for power scale)
+            linthresh   : float (threshold for symlog scale)
+            ticks       : int or list of numeric tick values
+            format      : tick label formatter
+            width       : int (length in px)
+            height      : int (thickness in px)
+            label       : str (colorbar title text)
+            cmap        : str (colormap name)
+            vmin, vmax  : float (data range)
+
+        Example
+        -------
+        >>> ax.pcolormesh(precip, cmap='YlGnBu')
+        >>> ax.colorbar(orientation='vertical', position='right', scale='sqrt',
+        ...             ticks=[0, 1, 2, 5, 10, 20, 35])
         """
-        self._cbar_opts = opts
+        target_id = None
+        if da is not None:
+            if not hasattr(da, "tp"):
+                raise TypeError("colorbar(da) expects an xarray DataArray")
+            self._register(da)
+            target_id = id(da)
+        self._calls.append(("colorbar", target_id, opts))
         return self
 
     def animate(self, da: xr.DataArray, dim: str, *, kind: str = "pcolormesh",
@@ -213,7 +243,12 @@ class Axes:
 
         # ── sequential layer calls ──
         lines = []
+        last_field_opts = None
+        last_field_var = None
         first_field_opts = None
+        first_field_var = None
+        has_explicit_cbar = any(call[0] == "colorbar" for call in self._calls)
+
         for call in self._calls:
             op = call[0]
             if op == "field":
@@ -222,8 +257,11 @@ class Axes:
                 if "levels" in js_opts and js_opts.get("cmap") is None and kind == "contour":
                     pass  # solid-color isolines: levels pass through as-is
                 lines.append(f"map.{kind}({var}.lons, {var}.lats, {var}.field, {json.dumps(js_opts)});")
+                last_field_opts = js_opts
+                last_field_var = var
                 if first_field_opts is None and kind in ("pcolormesh", "contourf"):
                     first_field_opts = js_opts
+                    first_field_var = var
             elif op == "feature":
                 _, name, opts = call
                 lines.append(f"map.addFeature('{name}', {json.dumps(opts)});")
@@ -233,6 +271,40 @@ class Axes:
                 lines.append(f"map.quiver({u}.lons, {u}.lats, {u}.field, {v}.field, {json.dumps(opts)});")
             elif op == "marker":
                 lines.append(f"map.marker({json.dumps(call[1]['lat'])}, {json.dumps(call[1]['lon'])}, {json.dumps(call[1])});")
+            elif op == "colorbar":
+                _, target_id, cbar_opts = call
+                cbar_cfg = dict(cbar_opts)
+                target_var = self._payloads[target_id]["var"] if target_id and target_id in self._payloads else (last_field_var or first_field_var)
+                f_opts = last_field_opts or first_field_opts or {}
+                if "cmap" not in cbar_cfg and "cmap" in f_opts:
+                    cbar_cfg["cmap"] = f_opts["cmap"]
+                if "vmin" not in cbar_cfg and "vmin" in f_opts:
+                    cbar_cfg["vmin"] = f_opts["vmin"]
+                if "vmax" not in cbar_cfg and "vmax" in f_opts:
+                    cbar_cfg["vmax"] = f_opts["vmax"]
+                if "label" not in cbar_cfg:
+                    if target_id and target_id in self._payloads:
+                        p = self._payloads[target_id]["payload"]
+                        ln = p.get("long_name") or p.get("name") or ""
+                        u = p.get("units", "")
+                        cbar_cfg["label"] = f"{ln} [{u}]" if u else ln
+                field_ref = f"{target_var}.field" if target_var else "[]"
+                lines.append(f"""(() => {{
+  const cbarOpts = {json.dumps(cbar_cfg)};
+  let lo = cbarOpts.vmin, hi = cbarOpts.vmax;
+  const f = {field_ref};
+  if (lo == null || hi == null) {{
+    lo = Infinity; hi = -Infinity;
+    const iterable = ArrayBuffer.isView(f) ? f : f.flat(Infinity);
+    for (const v of iterable) {{
+      if (v != null && isFinite(v)) {{ if (v < lo) lo = v; if (v > hi) hi = v; }}
+    }}
+    cbarOpts.vmin = lo; cbarOpts.vmax = hi;
+  }}
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  new Colorbar(host, cbarOpts);
+}})();""")
 
         # ── animation ──
         anim_js = ""
@@ -257,21 +329,23 @@ class Axes:
             title = self._title
             label = f"{title} — {label}" if label else title
 
-        # ── colorbar ── (terraplot Colorbar widget, fully configurable)
-        cbar_src = dict(self._cbar_opts or {})
-        if first_field_opts:
-            cbar_src.setdefault("cmap", first_field_opts.get("cmap", "viridis"))
-            cbar_src.setdefault("vmin", first_field_opts.get("vmin"))
-            cbar_src.setdefault("vmax", first_field_opts.get("vmax"))
-        if label and "label" not in cbar_src:
-            cbar_src["label"] = label
-        cvar = next(iter(self._payloads.values()), None)
-        colorbar_js = (
-            _COLORBAR_JS
-            .replace("})(payload.field,",
-                     f"}})({cvar['var']}.field," if cvar else "})([],", 1)
-            .replace("CBAR_OPTS", json.dumps(cbar_src))
-        )
+        # ── fallback colorbar (only if no explicit colorbar primitive was called) ──
+        colorbar_js = ""
+        if not has_explicit_cbar and (first_field_opts or self._cbar_opts):
+            cbar_src = dict(self._cbar_opts or {})
+            if first_field_opts:
+                cbar_src.setdefault("cmap", first_field_opts.get("cmap", "viridis"))
+                cbar_src.setdefault("vmin", first_field_opts.get("vmin"))
+                cbar_src.setdefault("vmax", first_field_opts.get("vmax"))
+            if label and "label" not in cbar_src:
+                cbar_src["label"] = label
+            cvar = next(iter(self._payloads.values()), None)
+            colorbar_js = (
+                _COLORBAR_JS
+                .replace("})(payload.field,",
+                         f"}})({cvar['var']}.field," if cvar else "})([],", 1)
+                .replace("CBAR_OPTS", json.dumps(cbar_src))
+            )
 
         map_height = f"{height_px or self.height_px}px" if (height_px or self.height_px) else "100vh"
 

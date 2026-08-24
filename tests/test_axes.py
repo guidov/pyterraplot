@@ -82,6 +82,24 @@ class TestAxesGlobe:
         ax.contourf(make_da(), cmap="viridis")
         assert ax._repr_html_().startswith("<iframe srcdoc=")
 
+    def test_colorbar_primitive(self, tmp_path):
+        da = make_da()
+        ax = Axes()
+        ax.pcolormesh(da, cmap="plasma")
+        ax.colorbar(orientation="vertical", position="right", scale="sqrt", ticks=[0, 5, 10, 20])
+        html = ax.to_html(tmp_path / "cbar.html").read_text()
+        assert "new Colorbar(host, cbarOpts)" in html
+        assert '"orientation": "vertical"' in html
+        assert '"position": "right"' in html
+        assert '"scale": "sqrt"' in html
+        assert '"ticks": [0, 5, 10, 20]' in html
+
+    def test_cities_feature(self, tmp_path):
+        ax = Axes()
+        ax.cities(color="#ffffff", opacity=0.8)
+        html = ax.to_html(tmp_path / "cities.html").read_text()
+        assert "addFeature('cities', {\"color\": \"#ffffff\", \"opacity\": 0.8})" in html
+
     def test_empty_axes_still_renders(self, tmp_path):
         out = Axes().to_html(tmp_path / "empty.html")
         assert "GeoSphere" in out.read_text()

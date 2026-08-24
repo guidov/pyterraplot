@@ -40,6 +40,7 @@ precip = xr.DataArray(
 # ── 2. Export HTML with Mapbox-style boundaries, labels, and colorbar ─────
 out_html = "/tmp/pyterraplot_mapbox.html"
 
+# Option A: via DataArray .tp accessor
 precip.tp.to_html(
     out_html,
     title="Precipitation Anomaly (mm/day)",
@@ -67,5 +68,24 @@ precip.tp.to_html(
     }
 )
 
+# Option B: via Axes composable primitives API
+ax = pyterraplot.Axes(earth_surface="satellite", spin=True)
+ax.pcolormesh(precip, cmap="YlGnBu", alpha=0.75, vmin=0, vmax=35)
+ax.coastlines(color="#000000", width=1.5)
+ax.borders(color="#000000", width=0.8)
+ax.cities(color="#ffffff")
+ax.colorbar(
+    orientation="vertical",
+    position="right",
+    panel=True,
+    background="rgba(0,0,0,0.65)",
+    scale="sqrt",
+    ticks=[0, 1, 2, 5, 10, 20, 35],
+    label="Precipitation Anomaly (mm/day)",
+)
+out_axes_html = "/tmp/pyterraplot_mapbox_axes.html"
+ax.to_html(out_axes_html, title="Precipitation Anomaly (Axes Primitive)")
+
 print(f"Successfully generated Mapbox-style globe visualization: {out_html}")
-print("Open this file in your browser to interact with the 3D globe.")
+print(f"Successfully generated Axes primitive globe visualization: {out_axes_html}")
+print("Open these files in your browser to interact with the 3D globe.")
