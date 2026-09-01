@@ -127,10 +127,12 @@ class TestAxes2D:
         with pytest.raises(ValueError):
             Axes(globe=False)
 
-    def test_marker_quiver_rejected_on_globe(self, tmp_path):
+    def test_marker_on_globe(self, tmp_path):
         ax = Axes()
-        with pytest.raises(NotImplementedError):
-            ax.marker(1, 2)
+        ax.marker(49.18, -117.72, label="Birchbank", tooltip={"Q": 1940})
+        html = ax.to_html(tmp_path / "globe_marker.html").read_text()
+        assert "map.marker(49.18, -117.72" in html
+        assert "Birchbank" in html
         u = make_da("u"); v = make_da("v")
         with pytest.raises(NotImplementedError):
             ax.quiver(u, v)

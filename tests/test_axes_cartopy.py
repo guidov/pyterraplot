@@ -312,14 +312,20 @@ class TestPointLineText:
 
     def test_2d_only_primitives_rejected_on_globe(self):
         ax = Axes()
-        for call in (lambda: ax.plot([0], [0]),
-                     lambda: ax.scatter([0], [0]),
-                     lambda: ax.text(0, 0, "x"),
-                     lambda: ax.tissot(),
-                     lambda: ax.add_geometries({"type": "Point",
-                                                "coordinates": [0, 0]})):
-            with pytest.raises(NotImplementedError, match="2D-projection only"):
-                call()
+        with pytest.raises(NotImplementedError, match="2D-projection only"):
+            ax.tissot()
+
+    def test_primitives_supported_on_globe(self, tmp_path):
+        ax = Axes()
+        ax.plot([0, 10], [0, 10], color="#22c55e")
+        ax.scatter([0], [0], color="#ef4444", tooltips=[{"station": "Test"}], style_3d="vertical_line")
+        ax.text(0, 0, "Equator")
+        ax.add_geometries({"type": "LineString", "coordinates": [[0, 0], [10, 10]]})
+        html = ax.to_html(tmp_path / "globe_primitives.html").read_text()
+        assert "map.plot(" in html
+        assert "map.scatter(" in html
+        assert "map.text(" in html
+        assert "map.addGeoJSON(" in html
 
 
 class TestVectors:

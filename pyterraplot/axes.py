@@ -401,7 +401,6 @@ class Axes:
         ``transform=ccrs.Geodetic()`` to follow great circles between vertices
         instead of straight lines in lon/lat.
         """
-        self._require_2d("plot")
         f_color, f_style, f_marker = _parse_fmt(fmt)
         coords = _as_coords(lons, lats)
 
@@ -436,18 +435,29 @@ class Axes:
                 color: str | None = None, cmap: str | None = None,
                 vmin: float | None = None, vmax: float | None = None,
                 alpha: float | None = None, marker: str = "o",
+                style_3d: str = "vertical_line", height: float | None = None,
+                tooltip: str | dict | None = None,
+                tooltips: Sequence[str | dict] | None = None,
                 edgecolor: str | None = None, edgewidth: float | None = None,
                 label: str | None = None, **opts) -> "Axes":
-        """Scatter points at geographic coordinates.
+        """Scatter points or 3D markers at geographic coordinates.
 
-        ``c`` colours points by value through ``cmap``; ``s`` sets the radius in
-        pixels and may be a scalar or a per-point sequence.
+        ``c`` colours points by value through ``cmap``; ``s`` sets the radius.
+        ``tooltips`` / ``tooltip`` adds interactive hover metadata cards.
+        On 3D globes, ``style_3d`` selects ``'vertical_line'`` (needle), ``'dot'``,
+        or ``'pin'``.
         """
-        self._require_2d("scatter")
         lon_list = [float(x) for x in np.atleast_1d(np.asarray(lons, dtype=float))]
         lat_list = [float(y) for y in np.atleast_1d(np.asarray(lats, dtype=float))]
 
-        style: dict[str, Any] = {"marker": marker}
+        style: dict[str, Any] = {"marker": marker, "style": style_3d}
+        if height is not None:
+            style["height"] = float(height)
+        if tooltips is not None:
+            style["tooltips"] = list(tooltips)
+        elif tooltip is not None:
+            style["tooltip"] = tooltip
+
         if c is not None:
             style["values"] = [float(v) for v in np.asarray(c, dtype=float).ravel()]
             style["cmap"] = cmap or "viridis"
@@ -456,7 +466,7 @@ class Axes:
             if vmax is not None:
                 style["vmax"] = vmax
         else:
-            style["color"] = color or "#fbbf24"
+            style["color"] = color or "#ef4444"
         if s is not None:
             arr = np.atleast_1d(np.asarray(s, dtype=float))
             if arr.size == 1:
@@ -481,8 +491,7 @@ class Axes:
              va: str = "middle", rotation: float | None = None,
              dx: float = 0, dy: float = 0, outline: bool = True,
              **opts) -> "Axes":
-        """Place a text label at a geographic position."""
-        self._require_2d("text")
+        """Place a text label at a geographic position (2D maps and 3D globe)."""
         anchor = {"center": "middle", "left": "start", "right": "end"}.get(ha, ha)
         baseline = {"center": "middle", "top": "hanging",
                     "bottom": "auto"}.get(va, va)
@@ -505,14 +514,23 @@ class Axes:
         return self.text(xy[0], xy[1], text, dx=dx, dy=dy, **kw)
 
     def marker(self, lat: float, lon: float, label: str | None = None,
-               color: str = "#fbbf24", size: float = 5) -> "Axes":
-        """Point marker with an optional text label (2D projections only).
-
-        Note the ``(lat, lon)`` order, kept from terraplot's own ``marker()``.
-        """
-        self._require_2d("marker")
-        self._calls.append(("marker", dict(lat=lat, lon=lon, label=label,
-                                           color=color, size=size)))
+               tooltip: str | dict | None = None,
+               style: str = "vertical_line",
+               height: float = 2.4,
+               color: str = "#ef4444", size: float = 0.22, **opts) -> "Axes":
+        """Point or 3D vertical needle marker with optional tooltip and label."""
+        m_opts = {
+            "lat": float(lat),
+            "lon": float(lon),
+            "label": label,
+            "tooltip": tooltip,
+            "style": style,
+            "height": height,
+            "color": color,
+            "size": size,
+            **_js_keys(opts)
+        }
+        self._calls.append(("marker", m_opts))
         return self
 
     def tissot(self, rad_km: float = 500.0, *,
@@ -552,14 +570,13 @@ class Axes:
                        edgecolor: str = "rgba(200,220,255,0.85)",
                        linewidth: float = 1.0, alpha: float | None = None,
                        label: str | None = None, **opts) -> "Axes":
-        """Draw arbitrary geometries through the map projection.
+        """Draw arbitrary geometries through the map projection or 3D globe.
 
         Accepts a GeoJSON mapping, anything exposing ``__geo_interface__``
         (shapely geometries, geopandas rows), or an iterable of either.
         ``crs`` is accepted for cartopy parity and must describe lon/lat
         coordinates, which is all terraplot consumes.
         """
-        self._require_2d("add_geometries")
         if crs is not None and not isinstance(crs, (_crs.PlateCarree, _crs.Geodetic)):
             raise NotImplementedError(
                 "add_geometries only reads lon/lat coordinates — pass "
@@ -750,10 +767,18 @@ class Axes:
     def _ctor_js(self, map_var: str, selector: str) -> str:
         """The `const <map_var> = new GeoMap(...)` (or GeoSphere) statement."""
         if self.globe:
+            cen_lon, cen_lat = self.center[0], self.center[1]
+            alt = 2.5
+            if self.extent:
+                cen_lon = (self.extent[0] + self.extent[1]) / 2.0
+                cen_lat = (self.extent[2] + self.extent[3]) / 2.0
+                span = max(abs(self.extent[1] - self.extent[0]), abs(self.extent[3] - self.extent[2]))
+                # Close-up altitude for regional extents
+                alt = max(1.06, min(2.5, 1.02 + (span / 60.0) * 0.8))
             ctor = (f"new GeoSphere('{selector}', {{ earthSurface: "
                     f"'{self.earth_surface}', autoRotate: {str(self.spin).lower()} }});\n"
-                    f"{map_var}.setPointOfView({{ lat: {self.center[1]}, "
-                    f"lng: {self.center[0]}, altitude: 2.5 }});")
+                    f"{map_var}.setPointOfView({{ lat: {cen_lat:.2f}, "
+                    f"lng: {cen_lon:.2f}, altitude: {alt:.2f} }});")
             return f"const {map_var} = {ctor}"
 
         opts: dict[str, Any] = {}
@@ -832,8 +857,9 @@ class Axes:
                              f"{json.dumps(style)});")
             elif op == "marker":
                 m = call[1]
-                lines.append(f"{map_var}.marker({json.dumps(m['lat'])}, "
-                             f"{json.dumps(m['lon'])}, {json.dumps(m)});")
+                lat_v = int(m['lat']) if isinstance(m['lat'], (int, float)) and float(m['lat']).is_integer() else m['lat']
+                lon_v = int(m['lon']) if isinstance(m['lon'], (int, float)) and float(m['lon']).is_integer() else m['lon']
+                lines.append(f"{map_var}.marker({lat_v}, {lon_v}, {json.dumps(m)});\n")
             elif op == "colorbar":
                 _, target_id, cbar_opts = call
                 cbar_cfg = dict(cbar_opts)
