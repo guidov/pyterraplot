@@ -25,7 +25,7 @@ DIVERGING = (
     "RdBu_r", "RdBu", "RdYlBu_r", "RdYlBu", "BrBG", "BrBG_r",
     "Spectral_r", "Spectral",
 )
-PERCEPTUALLY_UNIFORM = ("viridis", "plasma", "inferno", "magma")
+PERCEPTUALLY_UNIFORM = ("viridis", "plasma", "inferno", "magma", "turbo", "turbo_r")
 SEQUENTIAL = (
     "YlGnBu", "PuBuGn", "BuPu", "OrRd", "YlOrRd",
     "Blues", "Greens", "Greys",
